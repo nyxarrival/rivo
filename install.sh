@@ -3,16 +3,21 @@ set -euo pipefail
 
 PROGRAM="Rivo"
 DEFAULT_INSTALL_ROOT="/opt/rivo"
+DEFAULT_IMAGE_OWNER="nyxarrival"
 DEFAULT_IMAGE_REGISTRY="ghcr.io"
 DEFAULT_IMAGE_TAG="latest"
-DEFAULT_INSTALL_URL="https://raw.githubusercontent.com/REPLACE_WITH_GITHUB_OWNER/rivo/main/install.sh"
+DEFAULT_INSTALL_URL="https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh"
+DEFAULT_RELEASE_VERSION="latest"
 
 MODE=""
-IMAGE_OWNER="${RIVO_IMAGE_OWNER:-}"
+AGENT_METHOD="${RIVO_AGENT_METHOD:-docker}"
+IMAGE_OWNER="${RIVO_IMAGE_OWNER:-$DEFAULT_IMAGE_OWNER}"
 IMAGE_REGISTRY="${RIVO_IMAGE_REGISTRY:-$DEFAULT_IMAGE_REGISTRY}"
 IMAGE_TAG="${RIVO_IMAGE_TAG:-$DEFAULT_IMAGE_TAG}"
 MASTER_IMAGE="${RIVO_MASTER_IMAGE:-}"
 AGENT_IMAGE="${RIVO_AGENT_IMAGE:-}"
+RELEASE_REPO="${RIVO_RELEASE_REPO:-}"
+RELEASE_VERSION="${RIVO_RELEASE_VERSION:-$DEFAULT_RELEASE_VERSION}"
 INSTALL_DIR="${RIVO_INSTALL_DIR:-}"
 HTTP_PORT="${RIVO_HTTP_PORT:-8080}"
 TCP_PORT="${RIVO_TCP_PORT:-9443}"
@@ -31,11 +36,14 @@ Usage:
   install.sh single [options]
 
 Options:
-  --image-owner OWNER       GitHub/GHCR owner for ghcr.io/OWNER/rivo-master and rivo-agent
+  --method METHOD          Agent install method: docker or binary. Default: docker
+  --image-owner OWNER       GitHub/GHCR owner, default: nyxarrival
   --image-registry URL      Image registry, default: ghcr.io
   --image-tag TAG           Image tag, default: latest
   --master-image IMAGE      Full master image name, optional tag allowed
   --agent-image IMAGE       Full agent image name, optional tag allowed
+  --release-repo OWNER/REPO GitHub repo for binary releases, default: nyxarrival/rivo
+  --release-version VERSION Binary release version, default: latest
   --install-dir DIR         Install directory. Defaults to /opt/rivo/<mode>
   --http-port PORT          Master HTTP port, default: 8080
   --tcp-port PORT           Master TCP port, default: 9443
@@ -43,13 +51,14 @@ Options:
   --admin-password VALUE    Admin password. Generated when omitted
   --secret VALUE            Shared secret_key. Generated for master/single, required for agent
   --master HOST:PORT        Master TCP address for agent mode
-  --force                   Overwrite generated compose/config files
+  --force                   Overwrite generated compose/config/service files
   -h, --help                Show this help
 
 Examples:
-  sudo bash install.sh master --image-owner your-github-user
-  sudo bash install.sh agent --image-owner your-github-user --master 1.2.3.4:9443 --secret "..."
-  sudo bash install.sh single --image-owner your-github-user
+  sudo bash install.sh master
+  sudo bash install.sh agent --master 1.2.3.4:9443 --secret "..."
+  sudo bash install.sh agent --method binary --master 1.2.3.4:9443 --secret "..."
+  sudo bash install.sh single
 EOF
 }
 
@@ -85,6 +94,9 @@ parse_args() {
       --image-tag) IMAGE_TAG="${2:-}"; shift 2 ;;
       --master-image) MASTER_IMAGE="${2:-}"; shift 2 ;;
       --agent-image) AGENT_IMAGE="${2:-}"; shift 2 ;;
+      --method|--agent-method) AGENT_METHOD="${2:-}"; shift 2 ;;
+      --release-repo) RELEASE_REPO="${2:-}"; shift 2 ;;
+      --release-version) RELEASE_VERSION="${2:-}"; shift 2 ;;
       --install-dir) INSTALL_DIR="${2:-}"; shift 2 ;;
       --http-port) HTTP_PORT="${2:-}"; shift 2 ;;
       --tcp-port) TCP_PORT="${2:-}"; shift 2 ;;
@@ -138,6 +150,17 @@ validate_admin_path() {
   esac
 }
 
+validate_agent_method() {
+  AGENT_METHOD="$(printf '%s' "$AGENT_METHOD" | tr '[:upper:]' '[:lower:]')"
+  case "$AGENT_METHOD" in
+    docker|binary) ;;
+    *) die "--method must be docker or binary" ;;
+  esac
+  if [[ "$MODE" != "agent" && "$AGENT_METHOD" != "docker" ]]; then
+    die "--method binary is only supported for agent mode"
+  fi
+}
+
 image_ref() {
   local image="$1"
   local tag="$2"
@@ -183,10 +206,70 @@ resolve_install_url() {
   fi
 }
 
-ensure_tools() {
+resolve_release_repo() {
+  if [[ -z "$RELEASE_REPO" && -n "$IMAGE_OWNER" ]]; then
+    RELEASE_REPO="$IMAGE_OWNER/rivo"
+  fi
+  if [[ -z "$RELEASE_REPO" && "$INSTALL_URL" =~ raw\.githubusercontent\.com/([^/]+)/([^/]+)/ ]]; then
+    RELEASE_REPO="${BASH_REMATCH[1]}/${BASH_REMATCH[2]}"
+  fi
+  [[ -n "$RELEASE_REPO" ]] || die "set --image-owner or --release-repo for binary agent install"
+  [[ "$RELEASE_REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || die "--release-repo must look like OWNER/REPO"
+}
+
+detect_release_platform() {
+  local os
+  local arch
+  os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+  case "$os" in
+    linux) os="linux" ;;
+    *) die "binary agent install currently supports Linux only, got: $os" ;;
+  esac
+
+  arch="$(uname -m | tr '[:upper:]' '[:lower:]')"
+  case "$arch" in
+    x86_64|amd64) arch="amd64" ;;
+    aarch64|arm64) arch="arm64" ;;
+    *) die "unsupported CPU architecture for binary agent install: $arch" ;;
+  esac
+
+  printf '%s %s\n' "$os" "$arch"
+}
+
+agent_release_url() {
+  local os="$1"
+  local arch="$2"
+  local asset="rivo-agent-${os}-${arch}.tar.gz"
+  if [[ "$RELEASE_VERSION" == "latest" ]]; then
+    printf 'https://github.com/%s/releases/latest/download/%s\n' "$RELEASE_REPO" "$asset"
+  else
+    printf 'https://github.com/%s/releases/download/%s/%s\n' "$RELEASE_REPO" "$RELEASE_VERSION" "$asset"
+  fi
+}
+
+download_to() {
+  local url="$1"
+  local path="$2"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fL --retry 3 --connect-timeout 15 -o "$path" "$url"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -O "$path" "$url"
+  else
+    die "curl or wget is required"
+  fi
+}
+
+ensure_docker_tools() {
   need_command docker
   docker compose version >/dev/null 2>&1 || die "docker compose plugin is required"
   need_command base64
+}
+
+ensure_agent_binary_tools() {
+  need_command uname
+  need_command tar
+  need_command systemctl
+  command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1 || die "curl or wget is required"
 }
 
 target_dir() {
@@ -274,6 +357,100 @@ log:
   retention_days: 30
 EOF
   chmod 0600 "$config"
+}
+
+make_agent_binary_config() {
+  local dir="$1"
+  local config="$dir/config.yaml"
+  mkdir -p "$dir/data" "$dir/logs"
+  write_file "$config" <<EOF
+master_addr: "$MASTER_ADDR"
+secret_key: "$SECRET_KEY"
+
+agent:
+  node_id: ""
+  state_file: "$dir/data/agent-state.json"
+
+public_ip:
+  enabled: true
+  timeout_ms: 3000
+  refresh_interval_seconds: 600
+  ipv4_enabled: true
+  ipv6_enabled: true
+  ipv4_endpoints:
+    - "https://api.ipify.org"
+    - "https://v4.ident.me"
+    - "https://ipv4.icanhazip.com"
+    - "https://ifconfig.me/ip"
+  ipv6_endpoints:
+    - "https://api6.ipify.org"
+    - "https://v6.ident.me"
+    - "https://ipv6.icanhazip.com"
+    - "https://ifconfig.me/ip"
+
+log:
+  level: "info"
+  file: "$dir/logs/agent.log"
+  retention_days: 30
+EOF
+  chmod 0600 "$config"
+}
+
+install_agent_binary_files() {
+  local dir="$1"
+  local os
+  local arch
+  local url
+  local archive
+  local tmp_dir
+  local extracted_bin
+
+  read -r os arch < <(detect_release_platform)
+  url="$(agent_release_url "$os" "$arch")"
+  archive="$dir/rivo-agent-${os}-${arch}.tar.gz"
+  tmp_dir="$dir/.release-tmp"
+  extracted_bin="$tmp_dir/rivo-agent-${os}-${arch}/rivo-agent"
+
+  mkdir -p "$dir/bin" "$tmp_dir"
+  info "Downloading $url"
+  download_to "$url" "$archive"
+
+  rm -rf "$tmp_dir"
+  mkdir -p "$tmp_dir"
+  tar -xzf "$archive" -C "$tmp_dir"
+  [[ -f "$extracted_bin" ]] || die "release archive does not contain $extracted_bin"
+
+  cp "$extracted_bin" "$dir/bin/rivo-agent"
+  chmod 0755 "$dir/bin/rivo-agent"
+  rm -rf "$tmp_dir"
+}
+
+make_agent_systemd_service() {
+  local dir="$1"
+  local service="/etc/systemd/system/rivo-agent.service"
+  write_file "$service" <<EOF
+[Unit]
+Description=Rivo Agent
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=$dir
+ExecStart=$dir/bin/rivo-agent -config $dir/config.yaml
+Restart=always
+RestartSec=5
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target
+EOF
+}
+
+start_agent_systemd_service() {
+  systemctl daemon-reload
+  systemctl enable rivo-agent.service
+  systemctl restart rivo-agent.service
 }
 
 make_master_compose() {
@@ -467,6 +644,35 @@ detect_host_ip() {
   fi
 }
 
+is_private_or_local_address() {
+  local ip="$1"
+  local o1
+  local o2
+  local o3
+  local o4
+
+  [[ "$ip" == "YOUR_SERVER_IP" ]] && return 0
+
+  if [[ "$ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+    IFS=. read -r o1 o2 o3 o4 <<<"$ip"
+    o1=$((10#$o1))
+    o2=$((10#$o2))
+    case "$o1" in
+      0|10|127) return 0 ;;
+      169) (( o2 == 254 )) && return 0 ;;
+      172) (( o2 >= 16 && o2 <= 31 )) && return 0 ;;
+      192) (( o2 == 168 )) && return 0 ;;
+      100) (( o2 >= 64 && o2 <= 127 )) && return 0 ;;
+    esac
+    return 1
+  fi
+
+  case "${ip,,}" in
+    localhost|::1|fe80:*|fc*|fd*) return 0 ;;
+  esac
+  return 1
+}
+
 compose_up() {
   local dir="$1"
   docker compose -f "$dir/compose.yml" up -d
@@ -474,8 +680,10 @@ compose_up() {
 
 print_master_summary() {
   local host_ip
+  local master_addr
   host_ip="$(detect_host_ip)"
   host_ip="${host_ip:-YOUR_SERVER_IP}"
+  master_addr="$host_ip:$TCP_PORT"
   cat <<EOF
 
 $PROGRAM Master installed.
@@ -485,10 +693,26 @@ Admin:     http://$host_ip:$HTTP_PORT/$ADMIN_PATH
 Username:  admin
 Password:  $ADMIN_PASSWORD
 
-Agent install command:
+Detected Master TCP address: $master_addr
+EOF
+
+  if is_private_or_local_address "$host_ip"; then
+    cat <<EOF
+Notice: the detected Master address looks private or local. If the Agent is not in the same LAN/VPC/VPN, replace --master $master_addr with a public IP or domain that the Agent can reach.
+
+EOF
+  fi
+
+  cat <<EOF
+Agent install command (Docker):
 curl -fsSL $INSTALL_URL | sudo bash -s -- agent \\
-  --image-owner ${IMAGE_OWNER:-YOUR_GITHUB_OWNER} \\
-  --master $host_ip:$TCP_PORT \\
+  --master $master_addr \\
+  --secret "$SECRET_KEY"
+
+Agent install command (binary):
+curl -fsSL $INSTALL_URL | sudo bash -s -- agent \\
+  --method binary \\
+  --master $master_addr \\
   --secret "$SECRET_KEY"
 
 EOF
@@ -500,6 +724,7 @@ print_agent_summary() {
 $PROGRAM Agent installed.
 
 Master: $MASTER_ADDR
+Method: $AGENT_METHOD
 
 EOF
 }
@@ -519,7 +744,7 @@ install_master() {
   print_master_summary
 }
 
-install_agent() {
+install_agent_docker() {
   [[ -n "$MASTER_ADDR" ]] || die "--master is required for agent mode"
   [[ -n "$SECRET_KEY" ]] || die "--secret is required for agent mode"
 
@@ -529,6 +754,20 @@ install_agent() {
   make_agent_config "$dir"
   make_agent_compose "$dir"
   compose_up "$dir"
+  print_agent_summary
+}
+
+install_agent_binary() {
+  [[ -n "$MASTER_ADDR" ]] || die "--master is required for agent mode"
+  [[ -n "$SECRET_KEY" ]] || die "--secret is required for agent mode"
+
+  local dir
+  dir="$(target_dir)"
+  mkdir -p "$dir"
+  make_agent_binary_config "$dir"
+  install_agent_binary_files "$dir"
+  make_agent_systemd_service "$dir"
+  start_agent_systemd_service
   print_agent_summary
 }
 
@@ -551,15 +790,35 @@ main() {
   parse_args "$@"
   validate_port "--http-port" "$HTTP_PORT"
   validate_port "--tcp-port" "$TCP_PORT"
-  ensure_tools
+  validate_agent_method
   normalize_owner
-  resolve_images
   resolve_install_url
 
   case "$MODE" in
-    master) install_master ;;
-    agent) install_agent ;;
-    single) install_single ;;
+    master)
+      ensure_docker_tools
+      resolve_images
+      install_master
+      ;;
+    agent)
+      case "$AGENT_METHOD" in
+        docker)
+          ensure_docker_tools
+          resolve_images
+          install_agent_docker
+          ;;
+        binary)
+          ensure_agent_binary_tools
+          resolve_release_repo
+          install_agent_binary
+          ;;
+      esac
+      ;;
+    single)
+      ensure_docker_tools
+      resolve_images
+      install_single
+      ;;
   esac
 }
 

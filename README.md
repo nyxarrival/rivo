@@ -15,16 +15,16 @@ Rivo 是一套面向私有服务器、VPS、LXC 容器和小规模基础设施�
 
 仓库第一次发布到 GitHub 后，`main` 分支和 `v*` 标签会通过 GitHub Actions 自动构建并推送镜像。
 
-目标服务器需要先安装 Docker 和 Docker Compose 插件；安装脚本只负责生成 Rivo 配置并启动容器。
+Master、单机模式和 Docker Agent 需要先安装 Docker 与 Docker Compose 插件。二进制 Agent 不需要 Docker，但需要 Linux、systemd、`curl` 或 `wget`，以及 `tar`。
 
 ### 一键安装
 
-安装脚本会自动生成 `admin_path`、后台密码、`secret_key`、配置文件和 `compose.yml`，默认安装到 `/opt/rivo/<mode>`。
+安装脚本会自动生成 `admin_path`、后台密码、`secret_key` 和运行配置，默认安装到 `/opt/rivo/<mode>`。Docker 方式会生成 `compose.yml`，二进制 Agent 会生成 systemd service。
 
 安装 Master：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | sudo bash -s -- master --image-owner nyxarrival
+curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | sudo bash -s -- master
 ```
 
 安装完成后控制台会输出：
@@ -34,11 +34,21 @@ curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | s
 - 后台账号和随机密码
 - Agent 安装命令
 
-在需要监控的服务器上安装 Agent：
+如果输出的 `--master` 是 `172.x`、`10.x`、`192.168.x` 等内网地址，跨服务器部署 Agent 时需要替换成 Agent 能访问到的公网 IP、域名、VPC/VPN 内网地址。
+
+在需要监控的服务器上安装 Agent，默认使用 Docker：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | sudo bash -s -- agent \
-  --image-owner nyxarrival \
+  --master MASTER_IP:9443 \
+  --secret "MASTER输出的secret_key"
+```
+
+也可以使用二进制 Agent。脚本会自动识别 Linux `amd64` / `arm64`，从最新 GitHub Release 下载对应的 `rivo-agent-linux-*.tar.gz`，并注册为 `rivo-agent.service`：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | sudo bash -s -- agent \
+  --method binary \
   --master MASTER_IP:9443 \
   --secret "MASTER输出的secret_key"
 ```
@@ -46,7 +56,7 @@ curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | s
 如果 Master 和 Agent 在同一台机器上，也可以单机安装：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | sudo bash -s -- single --image-owner nyxarrival
+curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | sudo bash -s -- single
 ```
 
 常用参数：
@@ -57,7 +67,29 @@ curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | s
 - `--admin-password value`：自定义后台密码。
 - `--secret value`：自定义 Master 和 Agent 共用密钥。
 - `--image-tag v0.1.0`：使用指定镜像标签。
-- `--force`：覆盖脚本生成的配置和 Compose 文件。
+- `--method docker|binary`：Agent 安装方式，默认 `docker`。
+- `--release-version v0.1.0`：二进制 Agent 使用指定 Release；不传则使用最新 Release。
+- `--image-owner owner`：覆盖默认镜像和 Release owner，默认 `nyxarrival`。
+- `--force`：覆盖脚本生成的配置、Compose 或 systemd service 文件。
+
+安装指定版本时，Docker 方式使用镜像标签：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | sudo bash -s -- agent \
+  --image-tag v0.1.0 \
+  --master MASTER_IP:9443 \
+  --secret "MASTER输出的secret_key"
+```
+
+二进制方式使用 Release 版本：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | sudo bash -s -- agent \
+  --method binary \
+  --release-version v0.1.0 \
+  --master MASTER_IP:9443 \
+  --secret "MASTER输出的secret_key"
+```
 
 Agent 报 `master closed connection during register handshake` 时，优先检查 Master 和 Agent 使用的 `secret_key` 是否一致。更多说明见 [Agent 说明](docs/agent.md)。
 
@@ -101,6 +133,34 @@ RIVO_AGENT_IMAGE=ghcr.io/nyxarrival/rivo-agent:latest docker compose up -d
 ```
 
 更完整的本地构建、MySQL 和 Makefile 部署方式见 [部署说明](depoly/README.md)。
+
+### 二进制 Release
+
+如果不使用 Docker，可以从 GitHub Release 下载 Linux 二进制包。Master 二进制已经内嵌后台和默认主题静态资源。
+
+Master：
+
+```bash
+VERSION=v0.1.0
+ARCH=amd64 # 或 arm64
+curl -LO "https://github.com/nyxarrival/rivo/releases/download/${VERSION}/rivo-master-linux-${ARCH}.tar.gz"
+tar -xzf "rivo-master-linux-${ARCH}.tar.gz"
+cd "rivo-master-linux-${ARCH}"
+cp config.example.yaml config.yaml
+./rivo-master -config config.yaml
+```
+
+Agent：
+
+```bash
+VERSION=v0.1.0
+ARCH=amd64 # 或 arm64
+curl -LO "https://github.com/nyxarrival/rivo/releases/download/${VERSION}/rivo-agent-linux-${ARCH}.tar.gz"
+tar -xzf "rivo-agent-linux-${ARCH}.tar.gz"
+cd "rivo-agent-linux-${ARCH}"
+cp config.example.yaml config.yaml
+./rivo-agent -config config.yaml
+```
 
 ## 界面预览
 
