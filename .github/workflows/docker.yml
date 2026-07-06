@@ -21,9 +21,9 @@ jobs:
       matrix:
         image:
           - name: rivo-master
-            dockerfile: depoly/master/Dockerfile
+            dockerfile: deploy/master/Dockerfile
           - name: rivo-agent
-            dockerfile: depoly/agent/Dockerfile
+            dockerfile: deploy/agent/Dockerfile
 
     steps:
       - name: Checkout
