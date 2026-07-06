@@ -10,10 +10,10 @@ Rivo 是一套面向私有服务器、VPS、LXC 容器和小规模基础设施�
 
 默认镜像名：
 
-- `ghcr.io/<owner>/rivo-master:latest`
-- `ghcr.io/<owner>/rivo-agent:latest`
+- `ghcr.io/nyxarrival/rivo-master:latest`
+- `ghcr.io/nyxarrival/rivo-agent:latest`
 
-把下面命令里的 `<owner>` 替换为你的 GitHub 用户名或组织名。仓库第一次发布到 GitHub 后，`main` 分支和 `v*` 标签会通过 GitHub Actions 自动构建并推送镜像。
+仓库第一次发布到 GitHub 后，`main` 分支和 `v*` 标签会通过 GitHub Actions 自动构建并推送镜像。
 
 目标服务器需要先安装 Docker 和 Docker Compose 插件；安装脚本只负责生成 Rivo 配置并启动容器。
 
@@ -24,7 +24,7 @@ Rivo 是一套面向私有服务器、VPS、LXC 容器和小规模基础设施�
 安装 Master：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/<owner>/rivo/main/install.sh | sudo bash -s -- master --image-owner <owner>
+curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | sudo bash -s -- master --image-owner nyxarrival
 ```
 
 安装完成后控制台会输出：
@@ -37,8 +37,8 @@ curl -fsSL https://raw.githubusercontent.com/<owner>/rivo/main/install.sh | sudo
 在需要监控的服务器上安装 Agent：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/<owner>/rivo/main/install.sh | sudo bash -s -- agent \
-  --image-owner <owner> \
+curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | sudo bash -s -- agent \
+  --image-owner nyxarrival \
   --master MASTER_IP:9443 \
   --secret "MASTER输出的secret_key"
 ```
@@ -46,7 +46,7 @@ curl -fsSL https://raw.githubusercontent.com/<owner>/rivo/main/install.sh | sudo
 如果 Master 和 Agent 在同一台机器上，也可以单机安装：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/<owner>/rivo/main/install.sh | sudo bash -s -- single --image-owner <owner>
+curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | sudo bash -s -- single --image-owner nyxarrival
 ```
 
 常用参数：
@@ -72,7 +72,7 @@ mkdir -p /opt/rivo/master
 cp deploy/config.master.example.yaml /opt/rivo/master/config.yaml
 cp deploy/compose.master.yml /opt/rivo/master/compose.yml
 cd /opt/rivo/master
-RIVO_MASTER_IMAGE=ghcr.io/<owner>/rivo-master:latest docker compose up -d
+RIVO_MASTER_IMAGE=ghcr.io/nyxarrival/rivo-master:latest docker compose up -d
 ```
 
 启动前需要编辑 `/opt/rivo/master/config.yaml`，至少修改：
@@ -88,16 +88,16 @@ mkdir -p /opt/rivo/agent
 cp deploy/config.agent.example.yaml /opt/rivo/agent/config.yaml
 cp deploy/compose.agent.yml /opt/rivo/agent/compose.yml
 cd /opt/rivo/agent
-RIVO_AGENT_IMAGE=ghcr.io/<owner>/rivo-agent:latest docker compose up -d
+RIVO_AGENT_IMAGE=ghcr.io/nyxarrival/rivo-agent:latest docker compose up -d
 ```
 
 启动前需要编辑 `/opt/rivo/agent/config.yaml`，把 `master_addr` 改成 `MASTER_IP:9443`，并把 `secret_key` 改成和 Master 一致。
 
-手动 Compose 模板默认使用 `ghcr.io/REPLACE_WITH_GITHUB_OWNER/...`，正式使用前需要通过环境变量覆盖镜像名，或直接编辑 `compose.yml`：
+手动 Compose 模板可以通过环境变量覆盖镜像名；下面命令使用 `nyxarrival` 发布的 GHCR 镜像：
 
 ```bash
-RIVO_MASTER_IMAGE=ghcr.io/<owner>/rivo-master:latest docker compose up -d
-RIVO_AGENT_IMAGE=ghcr.io/<owner>/rivo-agent:latest docker compose up -d
+RIVO_MASTER_IMAGE=ghcr.io/nyxarrival/rivo-master:latest docker compose up -d
+RIVO_AGENT_IMAGE=ghcr.io/nyxarrival/rivo-agent:latest docker compose up -d
 ```
 
 更完整的本地构建、MySQL 和 Makefile 部署方式见 [部署说明](depoly/README.md)。
