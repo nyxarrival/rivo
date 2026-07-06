@@ -1,6 +1,6 @@
 # Rivo 部署说明
 
-`depoly` 目录保存 Rivo 的正式部署脚本，支持两种部署方式：
+`deploy` 目录保存 Rivo 的正式部署脚本，支持两种部署方式：
 
 - Docker / Docker Compose：适合服务器部署，Master、Agent、MySQL 可按需拆分运行。
 - 单二进制：把 Panel 编译进 Master，直接运行 `rivo-master` 和 `rivo-agent`。
@@ -8,7 +8,7 @@
 ## 目录结构
 
 ```text
-depoly/
+deploy/
   Makefile                 # 统一构建和部署入口
   README.md                # 部署说明
   master/
@@ -29,15 +29,15 @@ depoly/
 首次使用建议先复制示例配置：
 
 ```bash
-cp depoly/master/.env.example depoly/master/.env
-cp depoly/master/config.example.yaml depoly/master/config.yaml
-cp depoly/agent/.env.example depoly/agent/.env
+cp deploy/master/.env.example deploy/master/.env
+cp deploy/master/config.example.yaml deploy/master/config.yaml
+cp deploy/agent/.env.example deploy/agent/.env
 ```
 
-如果你在 devcontainer 内执行 Docker 命令，但 Docker daemon 实际运行在宿主机，`depoly/master/.env` 里的 `RIVO_MASTER_CONFIG_FILE` 必须写宿主机绝对路径，例如：
+如果你在 devcontainer 内执行 Docker 命令，但 Docker daemon 实际运行在宿主机，`deploy/master/.env` 里的 `RIVO_MASTER_CONFIG_FILE` 必须写宿主机绝对路径，例如：
 
 ```dotenv
-RIVO_MASTER_CONFIG_FILE=/path/to/rivo/depoly/master/config.yaml
+RIVO_MASTER_CONFIG_FILE=/path/to/rivo/deploy/master/config.yaml
 ```
 
 原因是 Docker bind mount 由宿主机 Docker daemon 解析，`/workspaces/rivo/...` 这类 devcontainer 内路径在宿主机侧通常不存在。
@@ -47,28 +47,28 @@ RIVO_MASTER_CONFIG_FILE=/path/to/rivo/depoly/master/config.yaml
 启动 Master：
 
 ```bash
-make -f depoly/Makefile compose-master-up
+make -f deploy/Makefile compose-master-up
 ```
 
 停止 Master：
 
 ```bash
-make -f depoly/Makefile compose-master-down
+make -f deploy/Makefile compose-master-down
 ```
 
 只构建 Master 镜像，不启动容器：
 
 ```bash
-make -f depoly/Makefile docker-master
+make -f deploy/Makefile docker-master
 ```
 
-Master 镜像不会内置 `config.yaml` 这类运行配置；`depoly/master/.env` 里的 `RIVO_MASTER_CONFIG_FILE` 会把宿主机配置文件挂载到容器内 `/app/config.yaml`。
+Master 镜像不会内置 `config.yaml` 这类运行配置；`deploy/master/.env` 里的 `RIVO_MASTER_CONFIG_FILE` 会把宿主机配置文件挂载到容器内 `/app/config.yaml`。
 
 后台管理面板的访问路径来自 Master 配置里的 `http.admin_path`，必须超过 5 个字符，并且只能包含英文字母和数字。前台展示页继续访问根路径，后台完整地址会在 Master 启动时输出到控制台。
 
 ## 数据库模式
 
-Master 支持 `sqlite` 和 `mysql`，通过 `depoly/master/.env` 控制。
+Master 支持 `sqlite` 和 `mysql`，通过 `deploy/master/.env` 控制。
 
 SQLite 模式：
 
@@ -91,7 +91,7 @@ RIVO_DATABASE_DSN=rivo:replace-with-database-password@tcp(mysql:3306)/rivo?chars
 也可以显式启动 MySQL profile：
 
 ```bash
-make -f depoly/Makefile compose-mysql-up
+make -f deploy/Makefile compose-mysql-up
 ```
 
 ## Agent Docker 部署
@@ -99,7 +99,7 @@ make -f depoly/Makefile compose-mysql-up
 编辑 Agent 参数：
 
 ```bash
-vim depoly/agent/.env
+vim deploy/agent/.env
 ```
 
 至少需要设置：
@@ -124,19 +124,19 @@ Docker Agent 默认会启用公网 IP 嗅探：启动后分别用 IPv4/IPv6 请�
 启动 Agent：
 
 ```bash
-make -f depoly/Makefile compose-agent-up
+make -f deploy/Makefile compose-agent-up
 ```
 
 停止 Agent：
 
 ```bash
-make -f depoly/Makefile compose-agent-down
+make -f deploy/Makefile compose-agent-down
 ```
 
 只构建 Agent 镜像，不启动容器：
 
 ```bash
-make -f depoly/Makefile docker-agent
+make -f deploy/Makefile docker-agent
 ```
 
 Agent 使用 `network_mode: host`、`pid: host`、`NET_RAW`，目的是采集宿主机指标、进程连接信息，并支持 ICMP Ping。
@@ -146,7 +146,7 @@ Agent 使用 `network_mode: host`、`pid: host`、`NET_RAW`，目的是采集宿
 构建 Master：
 
 ```bash
-make -f depoly/Makefile master
+make -f deploy/Makefile master
 ```
 
 这个命令会先构建 Panel，再把 `panel/dist` 同步到 Go embed 目录，最后生成：
@@ -158,7 +158,7 @@ dist/rivo-master
 构建 Agent：
 
 ```bash
-make -f depoly/Makefile agent
+make -f deploy/Makefile agent
 ```
 
 生成：
@@ -170,7 +170,7 @@ dist/rivo-agent
 同时构建 Master 和 Agent：
 
 ```bash
-make -f depoly/Makefile build
+make -f deploy/Makefile build
 ```
 
 ## 交叉编译
@@ -188,13 +188,13 @@ go env GOOS GOARCH
 如果只编译当前 devcontainer 平台的 Linux 二进制，直接执行：
 
 ```bash
-make -f depoly/Makefile master MASTER_BIN=rivo-master-linux-amd64
+make -f deploy/Makefile master MASTER_BIN=rivo-master-linux-amd64
 ```
 
 如果 `go env GOARCH` 显示 `arm64`，输出名建议改成：
 
 ```bash
-make -f depoly/Makefile master MASTER_BIN=rivo-master-linux-arm64
+make -f deploy/Makefile master MASTER_BIN=rivo-master-linux-arm64
 ```
 
 从 devcontainer 编译 Linux arm64：
@@ -203,14 +203,14 @@ make -f depoly/Makefile master MASTER_BIN=rivo-master-linux-arm64
 sudo apt-get update
 sudo apt-get install -y gcc-aarch64-linux-gnu
 GOOS=linux GOARCH=arm64 CGO_ENABLED=1 CC=aarch64-linux-gnu-gcc \
-  make -f depoly/Makefile master MASTER_BIN=rivo-master-linux-arm64
+  make -f deploy/Makefile master MASTER_BIN=rivo-master-linux-arm64
 ```
 
 编译 Agent Linux arm64：
 
 ```bash
 GOOS=linux GOARCH=arm64 CGO_ENABLED=0 \
-  make -f depoly/Makefile agent AGENT_BIN=rivo-agent-linux-arm64
+  make -f deploy/Makefile agent AGENT_BIN=rivo-agent-linux-arm64
 ```
 
 从 devcontainer 编译 Linux amd64：
@@ -219,14 +219,14 @@ GOOS=linux GOARCH=arm64 CGO_ENABLED=0 \
 sudo apt-get update
 sudo apt-get install -y gcc-x86-64-linux-gnu
 GOOS=linux GOARCH=amd64 CGO_ENABLED=1 CC=x86_64-linux-gnu-gcc \
-  make -f depoly/Makefile master MASTER_BIN=rivo-master-linux-amd64
+  make -f deploy/Makefile master MASTER_BIN=rivo-master-linux-amd64
 ```
 
 编译 Agent Linux amd64：
 
 ```bash
 GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
-  make -f depoly/Makefile agent AGENT_BIN=rivo-agent-linux-amd64
+  make -f deploy/Makefile agent AGENT_BIN=rivo-agent-linux-amd64
 ```
 
 从 devcontainer 编译 Windows amd64：
@@ -235,21 +235,21 @@ GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
 sudo apt-get update
 sudo apt-get install -y gcc-mingw-w64-x86-64
 GOOS=windows GOARCH=amd64 CGO_ENABLED=1 CC=x86_64-w64-mingw32-gcc \
-  make -f depoly/Makefile master MASTER_BIN=rivo-master-windows-amd64.exe
+  make -f deploy/Makefile master MASTER_BIN=rivo-master-windows-amd64.exe
 ```
 
 编译 Agent Windows amd64：
 
 ```bash
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 \
-  make -f depoly/Makefile agent AGENT_BIN=rivo-agent-windows-amd64.exe
+  make -f deploy/Makefile agent AGENT_BIN=rivo-agent-windows-amd64.exe
 ```
 
 Linux devcontainer 内不建议交叉编译 macOS 版本，因为 cgo 需要 macOS SDK 和对应 toolchain。需要 macOS 产物时，建议在 macOS 本机或 macOS CI runner 上执行：
 
 ```bash
 GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 CC="clang -arch arm64" \
-  make -f depoly/Makefile master MASTER_BIN=rivo-master-darwin-arm64
+  make -f deploy/Makefile master MASTER_BIN=rivo-master-darwin-arm64
 ```
 
 每次执行 `master` 目标都会先构建 Panel 并同步到 Go embed 目录。连续编译多个平台时，务必设置不同的 `MASTER_BIN` 或 `DIST_DIR`，避免产物互相覆盖。
@@ -264,30 +264,30 @@ file dist/rivo-master-linux-amd64
 
 | 命令 | 作用 |
 | --- | --- |
-| `make -f depoly/Makefile help` | 显示可用命令列表。 |
-| `make -f depoly/Makefile panel-build` | 进入 `panel` 目录执行 `pnpm install --frozen-lockfile` 和 `pnpm build`，只构建前端面板。 |
-| `make -f depoly/Makefile panel-embed` | 先执行 `panel-build`，再把 `panel/dist` 同步到 `internal/master/web/dist`，用于 Go embed。 |
-| `make -f depoly/Makefile master` | 构建单二进制 Master，输出到 `dist/rivo-master`。会自动执行 `panel-embed`。 |
-| `make -f depoly/Makefile agent` | 构建单二进制 Agent，输出到 `dist/rivo-agent`。 |
-| `make -f depoly/Makefile build` | 同时构建 Master 和 Agent 两个单二进制文件。 |
-| `make -f depoly/Makefile docker-master` | 构建 Master Docker 镜像，不启动容器。 |
-| `make -f depoly/Makefile docker-agent` | 构建 Agent Docker 镜像，不启动容器。 |
-| `make -f depoly/Makefile docker` | 同时构建 Master 和 Agent Docker 镜像。 |
-| `make -f depoly/Makefile compose-master-up` | 构建并启动 Master。若 `RIVO_DATABASE_DRIVER=mysql`，会同时启动 MySQL。 |
-| `make -f depoly/Makefile compose-mysql-up` | 显式以 MySQL profile 启动 Master + MySQL。 |
-| `make -f depoly/Makefile compose-agent-up` | 构建并启动 Agent。 |
-| `make -f depoly/Makefile compose-master-down` | 停止并移除 Master compose 服务。若当前数据库模式是 MySQL，也会处理 MySQL profile。 |
-| `make -f depoly/Makefile compose-agent-down` | 停止并移除 Agent compose 服务。 |
-| `make -f depoly/Makefile clean` | 删除 `dist` 和 `panel/dist` 构建产物。 |
+| `make -f deploy/Makefile help` | 显示可用命令列表。 |
+| `make -f deploy/Makefile panel-build` | 进入 `panel` 目录执行 `pnpm install --frozen-lockfile` 和 `pnpm build`，只构建前端面板。 |
+| `make -f deploy/Makefile panel-embed` | 先执行 `panel-build`，再把 `panel/dist` 同步到 `internal/master/web/dist`，用于 Go embed。 |
+| `make -f deploy/Makefile master` | 构建单二进制 Master，输出到 `dist/rivo-master`。会自动执行 `panel-embed`。 |
+| `make -f deploy/Makefile agent` | 构建单二进制 Agent，输出到 `dist/rivo-agent`。 |
+| `make -f deploy/Makefile build` | 同时构建 Master 和 Agent 两个单二进制文件。 |
+| `make -f deploy/Makefile docker-master` | 构建 Master Docker 镜像，不启动容器。 |
+| `make -f deploy/Makefile docker-agent` | 构建 Agent Docker 镜像，不启动容器。 |
+| `make -f deploy/Makefile docker` | 同时构建 Master 和 Agent Docker 镜像。 |
+| `make -f deploy/Makefile compose-master-up` | 构建并启动 Master。若 `RIVO_DATABASE_DRIVER=mysql`，会同时启动 MySQL。 |
+| `make -f deploy/Makefile compose-mysql-up` | 显式以 MySQL profile 启动 Master + MySQL。 |
+| `make -f deploy/Makefile compose-agent-up` | 构建并启动 Agent。 |
+| `make -f deploy/Makefile compose-master-down` | 停止并移除 Master compose 服务。若当前数据库模式是 MySQL，也会处理 MySQL profile。 |
+| `make -f deploy/Makefile compose-agent-down` | 停止并移除 Agent compose 服务。 |
+| `make -f deploy/Makefile clean` | 删除 `dist` 和 `panel/dist` 构建产物。 |
 
 ## Make 变量覆盖
 
 Makefile 支持通过命令行覆盖部分变量：
 
 ```bash
-make -f depoly/Makefile master VERSION=v1.0.0
-make -f depoly/Makefile agent CGO_ENABLED=1
-make -f depoly/Makefile docker-master MASTER_ENV=/path/to/master.env
+make -f deploy/Makefile master VERSION=v1.0.0
+make -f deploy/Makefile agent CGO_ENABLED=1
+make -f deploy/Makefile docker-master MASTER_ENV=/path/to/master.env
 ```
 
 常用变量：
@@ -295,8 +295,8 @@ make -f depoly/Makefile docker-master MASTER_ENV=/path/to/master.env
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
 | `DIST_DIR` | `项目根目录/dist` | 单二进制输出目录。 |
-| `MASTER_ENV` | `depoly/master/.env` | Master compose 使用的环境变量文件。 |
-| `AGENT_ENV` | `depoly/agent/.env` | Agent compose 使用的环境变量文件。 |
+| `MASTER_ENV` | `deploy/master/.env` | Master compose 使用的环境变量文件。 |
+| `AGENT_ENV` | `deploy/agent/.env` | Agent compose 使用的环境变量文件。 |
 | `GO` | `go` | Go 命令路径。 |
 | `PNPM` | `pnpm` | pnpm 命令路径。 |
 | `DOCKER_COMPOSE` | `docker compose` | Docker Compose 命令。 |
@@ -338,7 +338,7 @@ Go 二进制是在 Docker build 的 builder 阶段编译，再复制到最终运
 处理方式：
 
 ```bash
-cp depoly/master/config.example.yaml depoly/master/config.yaml
+cp deploy/master/config.example.yaml deploy/master/config.yaml
 ```
 
 如果在 devcontainer 内执行 Docker 命令，需要把 `RIVO_MASTER_CONFIG_FILE` 改成宿主机绝对路径。
@@ -353,7 +353,7 @@ http://localhost:8080/
 
 后台页面地址以 Master 启动日志输出为准。
 
-或者修改 `depoly/master/.env`：
+或者修改 `deploy/master/.env`：
 
 ```dotenv
 RIVO_HTTP_PORT=18080
@@ -362,5 +362,5 @@ RIVO_HTTP_PORT=18080
 然后重新启动：
 
 ```bash
-make -f depoly/Makefile compose-master-up
+make -f deploy/Makefile compose-master-up
 ```

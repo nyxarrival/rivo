@@ -24,6 +24,7 @@ const props = defineProps<{
   displayRegion: (region?: string | null) => string
   regionFlagClass: (region?: string | null) => RegionClassValue
   regionFlagStyle: (region?: string | null) => Record<string, string> | undefined
+  regionFlagText: (region?: string | null) => string
   regionFlagLabel: (region?: string | null) => string
   isNodeOnline: (node: NodeRecord) => boolean
   liveMetric: (node: NodeRecord) => NodeMetric | null
@@ -164,6 +165,7 @@ function sparklineFor(node: NodeRecord): DashboardSparklinePoint[] {
         :display-region="displayRegion"
         :region-flag-class="regionFlagClass"
         :region-flag-style="regionFlagStyle"
+        :region-flag-text="regionFlagText"
         :region-flag-label="regionFlagLabel"
         :is-node-online="isNodeOnline"
         :live-metric="liveMetric"

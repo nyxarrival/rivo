@@ -3,7 +3,7 @@ services:
     image: ${RIVO_AGENT_IMAGE}:${RIVO_IMAGE_TAG}
     build:
       context: ../..
-      dockerfile: depoly/agent/Dockerfile
+      dockerfile: deploy/agent/Dockerfile
       args:
         VERSION: ${RIVO_VERSION}
     container_name: ${RIVO_AGENT_CONTAINER}

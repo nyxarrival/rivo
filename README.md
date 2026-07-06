@@ -95,44 +95,30 @@ Agent 报 `master closed connection during register handshake` 时，优先检�
 
 ### 手动 Docker Compose
 
-如果不想使用安装脚本，可以复制 `deploy/` 里的模板手动部署。
+如果不想使用安装脚本，可以使用 `deploy/` 里的 Compose 和 Makefile 统一部署。
 
-Master：
-
-```bash
-mkdir -p /opt/rivo/master
-cp deploy/config.master.example.yaml /opt/rivo/master/config.yaml
-cp deploy/compose.master.yml /opt/rivo/master/compose.yml
-cd /opt/rivo/master
-RIVO_MASTER_IMAGE=ghcr.io/nyxarrival/rivo-master:latest docker compose up -d
-```
-
-启动前需要编辑 `/opt/rivo/master/config.yaml`，至少修改：
-
-- `tcp.secret_key`：和 Agent 保持一致。
-- `auth.password`：后台登录密码。
-- `http.admin_path`：后台访问路径，必须超过 5 个字符，只能包含英文字母和数字。
-
-Agent：
+首次使用先复制示例配置：
 
 ```bash
-mkdir -p /opt/rivo/agent
-cp deploy/config.agent.example.yaml /opt/rivo/agent/config.yaml
-cp deploy/compose.agent.yml /opt/rivo/agent/compose.yml
-cd /opt/rivo/agent
-RIVO_AGENT_IMAGE=ghcr.io/nyxarrival/rivo-agent:latest docker compose up -d
+cp deploy/master/.env.example deploy/master/.env
+cp deploy/master/config.example.yaml deploy/master/config.yaml
+cp deploy/agent/.env.example deploy/agent/.env
 ```
 
-启动前需要编辑 `/opt/rivo/agent/config.yaml`，把 `master_addr` 改成 `MASTER_IP:9443`，并把 `secret_key` 改成和 Master 一致。
+启动前需要编辑：
 
-手动 Compose 模板可以通过环境变量覆盖镜像名；下面命令使用 `nyxarrival` 发布的 GHCR 镜像：
+- `deploy/master/config.yaml`：至少修改 `tcp.secret_key`、`auth.password` 和 `http.admin_path`。
+- `deploy/master/.env`：配置 Master 镜像、端口、数据库和配置文件挂载路径。
+- `deploy/agent/.env`：配置 `RIVO_MASTER_ADDR` 和与 Master 一致的 `RIVO_SECRET_KEY`。
+
+启动 Master 和 Agent：
 
 ```bash
-RIVO_MASTER_IMAGE=ghcr.io/nyxarrival/rivo-master:latest docker compose up -d
-RIVO_AGENT_IMAGE=ghcr.io/nyxarrival/rivo-agent:latest docker compose up -d
+make -f deploy/Makefile compose-master-up
+make -f deploy/Makefile compose-agent-up
 ```
 
-更完整的本地构建、MySQL 和 Makefile 部署方式见 [部署说明](depoly/README.md)。
+MySQL、本地镜像构建和单二进制构建见 [部署说明](deploy/README.md)。
 
 ### 二进制 Release
 
@@ -265,14 +251,14 @@ pnpm dev
 ```bash
 go test ./...
 make build
-make -f depoly/Makefile build
+make -f deploy/Makefile build
 ```
 
 正式构建的 Master 二进制会通过 Go embed 内嵌 Panel 静态资源。前台主题 ZIP 包需要包含 `theme.json` 和 `dist/index.html`。
 
 ## 文档
 
-- [部署说明](depoly/README.md)：Docker、Compose、Makefile、MySQL 和正式打包。
+- [部署说明](deploy/README.md)：Docker、Compose、Makefile、MySQL 和正式打包。
 - [配置说明](docs/configuration.md)：Master 和 Agent 配置项。
 - [Agent 说明](docs/agent.md)：`node_id`、`state_file`、公网 IP 嗅探和多 Agent 运行。
 - [通信协议](docs/protocol.md)：注册握手、密钥派生、消息加密和数据流。
@@ -299,7 +285,7 @@ panel                       Vue 后台面板和默认前台
 themes/cyberpunk            Cyberpunk 前台主题
 configs                     配置示例
 migrations                  初始化 SQL
-depoly                      Docker 和正式构建文件
+deploy                      Docker 和正式构建文件
 ```
 
 ## 项目状态

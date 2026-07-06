@@ -1,8 +1,8 @@
 ROOT_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/..)
 DIST_DIR ?= $(ROOT_DIR)/dist
 EMBED_PANEL_DIR ?= $(ROOT_DIR)/internal/master/web/dist
-MASTER_ENV ?= $(ROOT_DIR)/depoly/master/.env
-AGENT_ENV ?= $(ROOT_DIR)/depoly/agent/.env
+MASTER_ENV ?= $(ROOT_DIR)/deploy/master/.env
+AGENT_ENV ?= $(ROOT_DIR)/deploy/agent/.env
 GO ?= go
 PNPM ?= pnpm
 DOCKER_COMPOSE ?= docker compose
@@ -29,22 +29,22 @@ help:
 	@echo "Rivo deploy targets"
 	@echo ""
 	@echo "Binary:"
-	@echo "  make -f depoly/Makefile panel-build"
-	@echo "  make -f depoly/Makefile panel-embed"
-	@echo "  make -f depoly/Makefile master"
-	@echo "  make -f depoly/Makefile agent"
-	@echo "  make -f depoly/Makefile build"
+	@echo "  make -f deploy/Makefile panel-build"
+	@echo "  make -f deploy/Makefile panel-embed"
+	@echo "  make -f deploy/Makefile master"
+	@echo "  make -f deploy/Makefile agent"
+	@echo "  make -f deploy/Makefile build"
 	@echo ""
 	@echo "Docker:"
-	@echo "  cp depoly/master/.env.example depoly/master/.env"
-	@echo "  cp depoly/agent/.env.example depoly/agent/.env"
-	@echo "  make -f depoly/Makefile docker-master"
-	@echo "  make -f depoly/Makefile docker-agent"
-	@echo "  make -f depoly/Makefile compose-master-up   # starts mysql too when RIVO_DATABASE_DRIVER=mysql"
-	@echo "  make -f depoly/Makefile compose-mysql-up    # explicit mysql profile"
-	@echo "  make -f depoly/Makefile compose-agent-up"
-	@echo "  make -f depoly/Makefile compose-master-down"
-	@echo "  make -f depoly/Makefile compose-agent-down"
+	@echo "  cp deploy/master/.env.example deploy/master/.env"
+	@echo "  cp deploy/agent/.env.example deploy/agent/.env"
+	@echo "  make -f deploy/Makefile docker-master"
+	@echo "  make -f deploy/Makefile docker-agent"
+	@echo "  make -f deploy/Makefile compose-master-up   # starts mysql too when RIVO_DATABASE_DRIVER=mysql"
+	@echo "  make -f deploy/Makefile compose-mysql-up    # explicit mysql profile"
+	@echo "  make -f deploy/Makefile compose-agent-up"
+	@echo "  make -f deploy/Makefile compose-master-down"
+	@echo "  make -f deploy/Makefile compose-agent-down"
 
 .PHONY: panel-build
 panel-build:
@@ -76,42 +76,42 @@ build: master agent
 
 .PHONY: ensure-master-env
 ensure-master-env:
-	@test -f "$(MASTER_ENV)" || (echo "missing depoly/master/.env, copy depoly/master/.env.example first"; exit 1)
+	@test -f "$(MASTER_ENV)" || (echo "missing deploy/master/.env, copy deploy/master/.env.example first"; exit 1)
 
 .PHONY: ensure-agent-env
 ensure-agent-env:
-	@test -f "$(AGENT_ENV)" || (echo "missing depoly/agent/.env, copy depoly/agent/.env.example first"; exit 1)
+	@test -f "$(AGENT_ENV)" || (echo "missing deploy/agent/.env, copy deploy/agent/.env.example first"; exit 1)
 
 .PHONY: docker-master
 docker-master: ensure-master-env
-	@cd "$(ROOT_DIR)" && $(DOCKER_COMPOSE) --env-file "$(MASTER_ENV)" -f depoly/master/compose.yml $(MASTER_DB_PROFILE) build master
+	@cd "$(ROOT_DIR)" && $(DOCKER_COMPOSE) --env-file "$(MASTER_ENV)" -f deploy/master/compose.yml $(MASTER_DB_PROFILE) build master
 
 .PHONY: docker-agent
 docker-agent: ensure-agent-env
-	@cd "$(ROOT_DIR)" && $(DOCKER_COMPOSE) --env-file "$(AGENT_ENV)" -f depoly/agent/compose.yml build agent
+	@cd "$(ROOT_DIR)" && $(DOCKER_COMPOSE) --env-file "$(AGENT_ENV)" -f deploy/agent/compose.yml build agent
 
 .PHONY: docker
 docker: docker-master docker-agent
 
 .PHONY: compose-master-up
 compose-master-up: ensure-master-env
-	@cd "$(ROOT_DIR)" && $(DOCKER_COMPOSE) --env-file "$(MASTER_ENV)" -f depoly/master/compose.yml $(MASTER_DB_PROFILE) up -d --build $(MASTER_DB_SERVICES)
+	@cd "$(ROOT_DIR)" && $(DOCKER_COMPOSE) --env-file "$(MASTER_ENV)" -f deploy/master/compose.yml $(MASTER_DB_PROFILE) up -d --build $(MASTER_DB_SERVICES)
 
 .PHONY: compose-mysql-up
 compose-mysql-up: ensure-master-env
-	@cd "$(ROOT_DIR)" && $(DOCKER_COMPOSE) --env-file "$(MASTER_ENV)" -f depoly/master/compose.yml --profile mysql up -d --build
+	@cd "$(ROOT_DIR)" && $(DOCKER_COMPOSE) --env-file "$(MASTER_ENV)" -f deploy/master/compose.yml --profile mysql up -d --build
 
 .PHONY: compose-agent-up
 compose-agent-up: ensure-agent-env
-	@cd "$(ROOT_DIR)" && $(DOCKER_COMPOSE) --env-file "$(AGENT_ENV)" -f depoly/agent/compose.yml up -d --build
+	@cd "$(ROOT_DIR)" && $(DOCKER_COMPOSE) --env-file "$(AGENT_ENV)" -f deploy/agent/compose.yml up -d --build
 
 .PHONY: compose-master-down
 compose-master-down: ensure-master-env
-	@cd "$(ROOT_DIR)" && $(DOCKER_COMPOSE) --env-file "$(MASTER_ENV)" -f depoly/master/compose.yml $(MASTER_DB_PROFILE) down
+	@cd "$(ROOT_DIR)" && $(DOCKER_COMPOSE) --env-file "$(MASTER_ENV)" -f deploy/master/compose.yml $(MASTER_DB_PROFILE) down
 
 .PHONY: compose-agent-down
 compose-agent-down: ensure-agent-env
-	@cd "$(ROOT_DIR)" && $(DOCKER_COMPOSE) --env-file "$(AGENT_ENV)" -f depoly/agent/compose.yml down
+	@cd "$(ROOT_DIR)" && $(DOCKER_COMPOSE) --env-file "$(AGENT_ENV)" -f deploy/agent/compose.yml down
 
 .PHONY: clean
 clean:

@@ -3,8 +3,8 @@ dist/
 node_modules/
 .cache/
 .env
-depoly/**/.env
-depoly/master/config.yaml
+deploy/**/.env
+deploy/master/config.yaml
 .DS_Store
 *.log
 .pnpm-store/

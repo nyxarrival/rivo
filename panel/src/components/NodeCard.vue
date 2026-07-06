@@ -16,6 +16,7 @@ const props = defineProps<{
   displayRegion: (region?: string | null) => string
   regionFlagClass: (region?: string | null) => RegionClassValue
   regionFlagStyle: (region?: string | null) => Record<string, string> | undefined
+  regionFlagText: (region?: string | null) => string
   regionFlagLabel: (region?: string | null) => string
   isNodeOnline: (node: NodeRecord) => boolean
   liveMetric: (node: NodeRecord) => NodeMetric | null
@@ -180,7 +181,7 @@ function trafficBarStyle() {
               :style="regionFlagStyle(node.region)"
               role="img"
               :aria-label="regionFlagLabel(node.region)"
-            ></span>
+            >{{ regionFlagText(node.region) }}</span>
             <span class="server-os-text">{{ osDisplay.label }}</span>
           </span>
         </div>
@@ -279,7 +280,9 @@ function trafficBarStyle() {
           <span v-for="tag in cardTags" :key="`${node.node_id}-foot-${tag}`">{{ tag }}</span>
         </template>
       </span>
-      <span class="tag">{{ nodeIpSummary(node) || formatMegabytes(node.latest_metric?.net_rx_bytes_total) }}</span>
+      <span class="tag" :title="nodeIpSummary(node) || formatMegabytes(node.latest_metric?.net_rx_bytes_total)">
+        {{ nodeIpSummary(node) || formatMegabytes(node.latest_metric?.net_rx_bytes_total) }}
+      </span>
     </div>
   </article>
 </template>

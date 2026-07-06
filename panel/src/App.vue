@@ -971,6 +971,32 @@ const regionFlagURLs: Record<string, string> = {
   vn: flagVN
 }
 
+const regionFlagTexts: Record<string, string> = {
+  ae: '🇦🇪',
+  au: '🇦🇺',
+  br: '🇧🇷',
+  ca: '🇨🇦',
+  cn: '🇨🇳',
+  de: '🇩🇪',
+  fr: '🇫🇷',
+  gb: '🇬🇧',
+  hk: '🇭🇰',
+  id: '🇮🇩',
+  in: '🇮🇳',
+  jp: '🇯🇵',
+  kr: '🇰🇷',
+  my: '🇲🇾',
+  nl: '🇳🇱',
+  ph: '🇵🇭',
+  ru: '🇷🇺',
+  sg: '🇸🇬',
+  th: '🇹🇭',
+  tr: '🇹🇷',
+  tw: '🇹🇼',
+  us: '🇺🇸',
+  vn: '🇻🇳'
+}
+
 function fallbackRegionOptions(): RegionOption[] {
   return [
     { label: '默认', value: 'default' },
@@ -3314,8 +3340,8 @@ function uniquePublicIPObservations(values: PublicIPObservation[]) {
   return result
 }
 
-function uniqueStrings(values: string[]) {
-  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)))
+function uniqueStrings(values: Array<string | undefined | null>) {
+  return Array.from(new Set(values.map((value) => value?.trim() ?? '').filter(Boolean)))
 }
 
 function nodeIPv4List(node?: NodeRecord | null) {
@@ -3327,29 +3353,30 @@ function nodeIPv6List(node?: NodeRecord | null) {
 }
 
 function nodePublicIPv4List(node?: NodeRecord | null) {
-  return nodePublicIPs(node).ipv4?.map((item) => item.ip).filter(isPublicIPv4Literal) ?? []
+  if (!node) return []
+  return uniqueStrings([
+    node.public_ip,
+    ...(nodePublicIPs(node).ipv4?.map((item) => item.ip) ?? [])
+  ]).filter(isPublicIPv4Literal)
 }
 
 function nodePublicIPv6List(node?: NodeRecord | null) {
-  return nodePublicIPs(node).ipv6?.map((item) => item.ip).filter(isPublicIPv6Literal) ?? []
+  if (!node) return []
+  return uniqueStrings([
+    node.public_ipv6,
+    node.public_ip,
+    ...(nodePublicIPs(node).ipv6?.map((item) => item.ip) ?? [])
+  ]).filter(isPublicIPv6Literal)
 }
 
 function nodePrimaryPublicIPv4(node?: NodeRecord | null) {
   if (!node) return ''
-  const publicIP = node.public_ip?.trim()
-  if (publicIP && isPublicIPv4Literal(publicIP)) return displayIP(publicIP)
-  const fallback = nodePublicIPv4List(node)[0] || ''
-  return displayIP(fallback)
+  return displayIP(nodePublicIPv4List(node)[0] || '')
 }
 
 function nodePrimaryPublicIPv6(node?: NodeRecord | null) {
   if (!node) return ''
-  const publicIPv6 = node.public_ipv6?.trim()
-  if (publicIPv6 && isPublicIPv6Literal(publicIPv6)) return displayIP(publicIPv6)
-  const legacyPublicIP = node.public_ip?.trim()
-  if (legacyPublicIP && isPublicIPv6Literal(legacyPublicIP)) return displayIP(legacyPublicIP)
-  const fallback = nodePublicIPv6List(node)[0] || ''
-  return displayIP(fallback)
+  return displayIP(nodePublicIPv6List(node)[0] || '')
 }
 
 function nodePrimaryIP(node?: NodeRecord | null) {
@@ -3369,22 +3396,36 @@ function nodePrimaryLocalIP(node?: NodeRecord | null) {
 }
 
 function nodeIPSummary(node: NodeRecord) {
-  const publicIPv4 = nodePrimaryPublicIPv4(node)
-  const publicIPv6 = nodePrimaryPublicIPv6(node)
-  return [publicIPv4, publicIPv6].filter(Boolean).join(' / ')
+  return displayIPList([...nodePublicIPv4List(node), ...nodePublicIPv6List(node)])
+}
+
+function nodePublicIPv4Text(node?: NodeRecord | null) {
+  return displayIPList(nodePublicIPv4List(node))
+}
+
+function nodePublicIPv6Text(node?: NodeRecord | null) {
+  return displayIPList(nodePublicIPv6List(node))
+}
+
+function nodeLocalIPv4Text(node?: NodeRecord | null) {
+  return displayIPList(nodeIPv4List(node))
+}
+
+function nodeLocalIPv6Text(node?: NodeRecord | null) {
+  return displayIPList(nodeIPv6List(node))
 }
 
 function nodeIPListText(node?: NodeRecord | null) {
   if (!node) return ''
   const lines: string[] = []
-  const publicIPv4 = nodePrimaryPublicIPv4(node)
-  const publicIPv6 = nodePrimaryPublicIPv6(node)
-  const ipv4 = nodeIPv4List(node)
-  const ipv6 = nodeIPv6List(node)
+  const publicIPv4 = nodePublicIPv4Text(node)
+  const publicIPv6 = nodePublicIPv6Text(node)
+  const ipv4 = nodeLocalIPv4Text(node)
+  const ipv6 = nodeLocalIPv6Text(node)
   if (publicIPv4) lines.push(`公网 IPv4: ${publicIPv4}`)
   if (publicIPv6) lines.push(`公网 IPv6: ${publicIPv6}`)
-  if (ipv4.length) lines.push(`本机 IPv4: ${displayIPList(ipv4)}`)
-  if (ipv6.length) lines.push(`本机 IPv6: ${displayIPList(ipv6)}`)
+  if (ipv4) lines.push(`本机 IPv4: ${ipv4}`)
+  if (ipv6) lines.push(`本机 IPv6: ${ipv6}`)
   return lines.join('\n')
 }
 
@@ -3480,9 +3521,14 @@ function countryFlagCode(region?: string | null) {
   const directCode = flagCodeFromRegionValue(rawRegion)
   if (directCode !== 'default') return directCode
 
-  const tokens = normalized.split(/[^a-z0-9\u4e00-\u9fa5]+/).filter(Boolean)
+  const optionLabel = String(option?.label ?? '').toLowerCase()
+  const searchable = `${normalized} ${optionLabel}`
+  const tokens = searchable.split(/[^a-z0-9\u4e00-\u9fa5]+/).filter(Boolean)
+  const tokenCode = tokens.map(flagCodeFromRegionValue).find((code) => code !== 'default')
+  if (tokenCode) return tokenCode
+
   const hasToken = (...values: string[]) => values.some((value) => tokens.includes(value))
-  const hasText = (...values: string[]) => values.some((value) => normalized.includes(value))
+  const hasText = (...values: string[]) => values.some((value) => searchable.includes(value))
 
   if (hasToken('hk') || hasText('hong kong', '香港')) return 'hk'
   if (hasToken('tw') || hasText('taiwan', '台湾', '台灣')) return 'tw'
@@ -3497,6 +3543,16 @@ function countryFlagCode(region?: string | null) {
   if (hasToken('nl') || hasText('netherlands', 'amsterdam', '荷兰', '荷蘭')) return 'nl'
   if (hasToken('ca') || hasText('canada', 'toronto', '加拿大')) return 'ca'
   if (hasToken('au') || hasText('australia', 'sydney', '澳大利亚', '澳洲')) return 'au'
+  if (hasToken('ae') || hasText('united arab emirates', 'dubai', '阿联酋', '阿聯酋')) return 'ae'
+  if (hasToken('th') || hasText('thailand', 'bangkok', '泰国', '泰國')) return 'th'
+  if (hasToken('vn') || hasText('vietnam', '越南')) return 'vn'
+  if (hasToken('in') || hasText('india', 'mumbai', '印度')) return 'in'
+  if (hasToken('id') || hasText('indonesia', 'jakarta', '印尼', '印度尼西亚', '印度尼西亞')) return 'id'
+  if (hasToken('my') || hasText('malaysia', '马来西亚', '馬來西亞')) return 'my'
+  if (hasToken('ph') || hasText('philippines', '菲律宾', '菲律賓')) return 'ph'
+  if (hasToken('br') || hasText('brazil', 'sao paulo', '巴西')) return 'br'
+  if (hasToken('ru') || hasText('russia', 'moscow', '俄罗斯', '俄羅斯')) return 'ru'
+  if (hasToken('tr') || hasText('turkey', 'istanbul', '土耳其')) return 'tr'
   return 'default'
 }
 
@@ -3521,9 +3577,20 @@ function regionFlagStyle(region?: string | null) {
   return url ? { backgroundImage: `url(${url})` } : undefined
 }
 
+function regionFlagText(region?: string | null) {
+  const code = countryFlagCode(region)
+  if (code === 'default') return '🌐'
+  return regionFlagTexts[code] ?? flagEmojiFromCode(code)
+}
+
 function regionFlagLabel(region?: string | null) {
-  if (!regionFlagURL(region)) return '默认地区'
+  if (countryFlagCode(region) === 'default') return '默认地区'
   return `${displayRegion(region)}地区旗帜`
+}
+
+function flagEmojiFromCode(code: string) {
+  if (!/^[a-z]{2}$/.test(code)) return '🌐'
+  return String.fromCodePoint(...code.toUpperCase().split('').map((char) => 127397 + char.charCodeAt(0)))
 }
 
 function renderRegionOptionLabel(option: SelectOption) {
@@ -3535,7 +3602,7 @@ function renderRegionOptionLabel(option: SelectOption) {
       style: regionFlagStyle(value),
       role: 'img',
       'aria-label': regionFlagLabel(value)
-    }),
+    }, regionFlagText(value)),
     h('span', label)
   ])
 }
@@ -4795,6 +4862,7 @@ onBeforeUnmount(() => {
           :display-region="displayRegion"
           :region-flag-class="regionFlagClass"
           :region-flag-style="regionFlagStyle"
+          :region-flag-text="regionFlagText"
           :region-flag-label="regionFlagLabel"
           :is-node-online="isNodeOnline"
           :live-metric="liveMetric"
@@ -4971,7 +5039,7 @@ onBeforeUnmount(() => {
                     :style="regionFlagStyle(item.node.region)"
                     role="img"
                     :aria-label="regionFlagLabel(item.node.region)"
-                  />
+                  >{{ regionFlagText(item.node.region) }}</span>
                   <strong class="node-name-with-id asset-node-name">
                     <span class="node-name-trigger">{{ nodeLabel(item.node) }}</span>
                     <small class="node-id-popover">
@@ -5319,27 +5387,27 @@ onBeforeUnmount(() => {
             <dl>
               <div>
                 <dt>Node ID</dt>
-                <dd>{{ adminEditNodeID || '-' }}</dd>
+                <dd :title="adminEditNodeID || '-'">{{ adminEditNodeID || '-' }}</dd>
               </div>
               <div>
                 <dt>公网 IPv4</dt>
-                <dd>{{ nodePrimaryPublicIPv4(editingNode) || '-' }}</dd>
+                <dd :title="nodePublicIPv4Text(editingNode) || '-'">{{ nodePublicIPv4Text(editingNode) || '-' }}</dd>
               </div>
               <div>
                 <dt>公网 IPv6</dt>
-                <dd>{{ nodePrimaryPublicIPv6(editingNode) || '-' }}</dd>
+                <dd :title="nodePublicIPv6Text(editingNode) || '-'">{{ nodePublicIPv6Text(editingNode) || '-' }}</dd>
               </div>
               <div>
                 <dt>本机主 IP</dt>
-                <dd>{{ nodePrimaryLocalIP(editingNode) || '-' }}</dd>
+                <dd :title="nodePrimaryLocalIP(editingNode) || '-'">{{ nodePrimaryLocalIP(editingNode) || '-' }}</dd>
               </div>
               <div>
                 <dt>本机 IPv4</dt>
-                <dd>{{ displayIPList(nodeIPv4List(editingNode)) || '-' }}</dd>
+                <dd :title="nodeLocalIPv4Text(editingNode) || '-'">{{ nodeLocalIPv4Text(editingNode) || '-' }}</dd>
               </div>
               <div>
                 <dt>本机 IPv6</dt>
-                <dd>{{ displayIPList(nodeIPv6List(editingNode)) || '-' }}</dd>
+                <dd :title="nodeLocalIPv6Text(editingNode) || '-'">{{ nodeLocalIPv6Text(editingNode) || '-' }}</dd>
               </div>
               <div>
                 <dt>地区</dt>
@@ -5350,7 +5418,7 @@ onBeforeUnmount(() => {
                     :style="regionFlagStyle(editingNode?.region)"
                     role="img"
                     :aria-label="regionFlagLabel(editingNode?.region)"
-                  />
+                  >{{ regionFlagText(editingNode?.region) }}</span>
                   <span>{{ displayRegion(editingNode?.region) }}</span>
                 </dd>
               </div>

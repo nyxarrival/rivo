@@ -679,6 +679,20 @@ input {
   height: 13.5px;
 }
 
+.region-select-flag.region-flag-icon,
+.node-region-detail .node-flag.region-flag-icon,
+.asset-row-name .node-flag.region-flag-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  overflow: visible;
+  border: 0;
+  background: transparent !important;
+  font-size: 15px;
+  line-height: 1;
+}
+
 .status-dot {
   flex: 0 0 auto;
   width: 10px;
@@ -6023,10 +6037,17 @@ body::before {
 }
 
 .server-region-flag {
+  display: inline-grid;
+  place-items: center;
   flex: 0 0 auto;
-  width: 17px;
-  height: 12px;
-  border-radius: 3px;
+  width: 18px;
+  height: 18px;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent !important;
+  font-size: 15px;
+  line-height: 1;
 }
 
 .server-region-text,
