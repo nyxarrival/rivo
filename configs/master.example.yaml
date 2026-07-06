@@ -1,0 +1,46 @@
+# HTTP 服务配置，提供管理面板和 API。
+http:
+  # HTTP 监听地址。":8080" 表示监听所有网卡的 8080 端口。
+  listen_addr: ":8080"
+  # 后台管理面板访问路径，必须超过 5 个字符，并且只能包含英文字母和数字。
+  # 示例访问地址：http://127.0.0.1:8080/replaceWithRandomPath
+  # 生产环境请替换为自己生成的随机字符串。
+  admin_path: "replaceWithRandomPath"
+
+# TCP 服务配置，Agent 通过该端口连接 Master。
+tcp:
+  # TCP 监听地址。Agent 的 master_addr 需要指向这个地址。
+  listen_addr: ":9443"
+  # Master 和 Agent 共享的通信密钥。生产环境必须替换，并和 Agent 的 secret_key 完全一致。
+  # 这里填写的是 32 字节随机数据的标准 Base64 表示，不是普通密码的 Base64。
+  # 生成命令：openssl rand -base64 32
+  secret_key: "replace-with-base64-random-key"
+
+# 数据库配置，支持 sqlite 和 mysql。
+database:
+  # 数据库类型。可选值：sqlite、mysql。
+  # driver: "mysql"
+  # MySQL DSN 示例。使用 MySQL 时取消下一行注释，并把 driver 改为 mysql。
+  # dsn: "rivo:replace-with-database-password@tcp(127.0.0.1:3306)/rivo?charset=utf8mb4&parseTime=True&loc=Local"
+  # 默认使用 SQLite，适合单机部署和快速体验。
+  driver: "sqlite"
+  # SQLite 数据库文件路径。相对路径以程序运行目录为基准。
+  dsn: "data/rivo.db"
+  # 启动时自动迁移数据库表结构。
+  auto_migrate: true
+
+# 管理面板登录账号。
+auth:
+  # 管理员用户名。
+  username: "admin"
+  # 管理员密码。生产环境必须替换。
+  password: "change-me-admin-password"
+
+# 日志配置。
+log:
+  # 日志级别，常用值：debug、info、warn、error。
+  level: "info"
+  # 日志文件路径。
+  file: "logs/master.log"
+  # 日志保留天数，超过后会自动清理。
+  retention_days: 30

@@ -1,0 +1,28 @@
+master_addr: "YOUR_MASTER_IP:9443"
+secret_key: "replace-with-master-secret-key"
+
+agent:
+  node_id: ""
+  state_file: "/app/data/agent-state.json"
+
+public_ip:
+  enabled: true
+  timeout_ms: 3000
+  refresh_interval_seconds: 600
+  ipv4_enabled: true
+  ipv6_enabled: true
+  ipv4_endpoints:
+    - "https://api.ipify.org"
+    - "https://v4.ident.me"
+    - "https://ipv4.icanhazip.com"
+    - "https://ifconfig.me/ip"
+  ipv6_endpoints:
+    - "https://api6.ipify.org"
+    - "https://v6.ident.me"
+    - "https://ipv6.icanhazip.com"
+    - "https://ifconfig.me/ip"
+
+log:
+  level: "info"
+  file: "logs/agent.log"
+  retention_days: 30

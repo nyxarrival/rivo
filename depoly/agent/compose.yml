@@ -1,0 +1,31 @@
+services:
+  agent:
+    image: ${RIVO_AGENT_IMAGE}:${RIVO_IMAGE_TAG}
+    build:
+      context: ../..
+      dockerfile: depoly/agent/Dockerfile
+      args:
+        VERSION: ${RIVO_VERSION}
+    container_name: ${RIVO_AGENT_CONTAINER}
+    restart: unless-stopped
+    command:
+      - "--master"
+      - "${RIVO_MASTER_ADDR}"
+      - "--secret-key"
+      - "${RIVO_SECRET_KEY}"
+      - "--state-file"
+      - "/app/data/agent-state.json"
+    network_mode: host
+    pid: host
+    user: "0:0"
+    cap_add:
+      - NET_RAW
+    volumes:
+      - agent-data:/app/data
+      - agent-logs:/app/logs
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+
+volumes:
+  agent-data:
+  agent-logs:

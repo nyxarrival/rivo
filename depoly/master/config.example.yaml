@@ -1,0 +1,23 @@
+http:
+  listen_addr: ":8080"
+  admin_path: "replaceWithRandomPath"
+
+tcp:
+  listen_addr: ":9443"
+  secret_key: "replace-with-base64-random-key"
+
+database:
+  # driver: "mysql" # mysql or sqlite
+  # dsn: "rivo:replace-with-database-password@tcp(mysql:3306)/rivo?charset=utf8mb4&parseTime=True&loc=Local"
+  driver: "sqlite"
+  dsn: "data/rivo.db"
+  auto_migrate: true
+
+auth:
+  username: "admin"
+  password: "change-me-admin-password"
+
+log:
+  level: "info"
+  file: "logs/master.log"
+  retention_days: 30

@@ -1,0 +1,48 @@
+# Master TCP 地址。只写 IP 时，命令行 --master 会默认补 9443；配置文件里建议显式写端口。
+master_addr: "127.0.0.1:9443"
+# Master 和 Agent 共享的通信密钥，必须和 Master 的 tcp.secret_key 完全一致。
+# 这里填写的是 32 字节随机数据的标准 Base64 表示，不是普通密码的 Base64。
+# 生成命令：openssl rand -base64 32
+secret_key: "replace-with-base64-random-key"
+
+# Agent 本地配置。
+agent:
+  # 节点 ID。留空时首次启动会自动生成 16 位稳定 ID。
+  node_id: ""
+  # Agent 状态文件。保存 node_id，以及命令行启动时传入的 master_addr、secret_key 等信息。
+  # 同一台宿主机运行多个 Agent 时，每个 Agent 必须使用不同的 state_file 或不同的 node_id。
+  state_file: "data/agent-state.json"
+
+# 公网 IP 嗅探配置。Agent 会分别强制使用 IPv4/IPv6 请求外部接口，并把观测到的公网出口 IP 上报给 Master。
+# Master 会保留同一 Agent 历史上报过的多个公网 IPv4/IPv6，默认展示首次观测到的公网 IPv4 和 IPv6。
+public_ip:
+  # 设置为 false 可关闭外部公网 IP 查询；关闭后只使用 Master 看到的 TCP 来源 IP 和本机网卡 IP 兜底。
+  enabled: true
+  # 单个公网 IP 查询接口超时时间，单位毫秒。
+  timeout_ms: 3000
+  # 周期刷新公网 IP 的间隔，单位秒。刷新结果会随心跳上报。
+  refresh_interval_seconds: 600
+  # 是否启用 IPv4 / IPv6 公网嗅探。
+  ipv4_enabled: true
+  ipv6_enabled: true
+  # IPv4 查询接口。Agent 会强制使用 tcp4 请求，返回值必须是公网 IPv4。
+  ipv4_endpoints:
+    - "https://api.ipify.org"
+    - "https://v4.ident.me"
+    - "https://ipv4.icanhazip.com"
+    - "https://ifconfig.me/ip"
+  # IPv6 查询接口。Agent 会强制使用 tcp6 请求，返回值必须是公网 IPv6。
+  ipv6_endpoints:
+    - "https://api6.ipify.org"
+    - "https://v6.ident.me"
+    - "https://ipv6.icanhazip.com"
+    - "https://ifconfig.me/ip"
+
+# 日志配置。
+log:
+  # 日志级别，常用值：debug、info、warn、error。
+  level: "info"
+  # 日志文件路径。
+  file: "logs/agent.log"
+  # 日志保留天数，超过后会自动清理。
+  retention_days: 30

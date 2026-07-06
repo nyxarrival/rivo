@@ -1,0 +1,22 @@
+services:
+  master:
+    image: ${RIVO_MASTER_IMAGE:-ghcr.io/REPLACE_WITH_GITHUB_OWNER/rivo-master:latest}
+    container_name: ${RIVO_MASTER_CONTAINER:-rivo-master}
+    restart: unless-stopped
+    command: ["-config", "/app/config.yaml"]
+    ports:
+      - "${RIVO_HTTP_PORT:-8080}:8080"
+      - "${RIVO_TCP_PORT:-9443}:9443"
+    volumes:
+      - type: bind
+        source: ${RIVO_MASTER_CONFIG_FILE:-./config.yaml}
+        target: /app/config.yaml
+        read_only: true
+        bind:
+          create_host_path: false
+      - master-data:/app/data
+      - master-logs:/app/logs
+
+volumes:
+  master-data:
+  master-logs:
