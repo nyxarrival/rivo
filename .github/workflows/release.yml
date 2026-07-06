@@ -9,9 +9,43 @@ permissions:
   contents: write
 
 jobs:
-  release:
-    name: Build release binaries
-    runs-on: ubuntu-latest
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-amd64
+            runner: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            cc: gcc
+            exe: ""
+          - target: linux-arm64
+            runner: ubuntu-latest
+            goos: linux
+            goarch: arm64
+            cc: aarch64-linux-gnu-gcc
+            exe: ""
+          - target: darwin-amd64
+            runner: macos-latest
+            goos: darwin
+            goarch: amd64
+            cc: clang -arch x86_64
+            exe: ""
+          - target: darwin-arm64
+            runner: macos-latest
+            goos: darwin
+            goarch: arm64
+            cc: clang -arch arm64
+            exe: ""
+          - target: windows-amd64
+            runner: windows-latest
+            goos: windows
+            goarch: amd64
+            cc: x86_64-w64-mingw32-gcc
+            exe: ".exe"
 
     steps:
       - name: Checkout
@@ -32,62 +66,87 @@ jobs:
         run: corepack enable
 
       - name: Install Linux build dependencies
+        if: matrix.goos == 'linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential gcc-aarch64-linux-gnu
 
+      - name: Set up MinGW for Windows CGO
+        if: matrix.goos == 'windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: mingw-w64-x86_64-gcc
+
       - name: Build panel
         working-directory: panel
+        shell: bash
         run: |
           pnpm install --frozen-lockfile
           pnpm build
 
       - name: Embed panel assets
+        shell: bash
         run: |
           rm -rf internal/master/web/dist
           mkdir -p internal/master/web/dist
           cp -R panel/dist/. internal/master/web/dist/
 
       - name: Build binary packages
+        shell: bash
         env:
           VERSION: ${{ github.ref_name }}
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CC: ${{ matrix.cc }}
+          EXE: ${{ matrix.exe }}
         run: |
           set -euo pipefail
 
+          if [[ "$GOOS" == "windows" ]]; then
+            export PATH="/c/msys64/mingw64/bin:$PATH"
+          fi
+
           mkdir -p dist/package dist/release
 
-          for arch in amd64 arm64; do
-            case "$arch" in
-              amd64)
-                cc="gcc"
-                ;;
-              arm64)
-                cc="aarch64-linux-gnu-gcc"
-                ;;
-              *)
-                echo "unsupported arch: $arch" >&2
-                exit 1
-                ;;
-            esac
+          master_dir="dist/package/rivo-master-${GOOS}-${GOARCH}"
+          agent_dir="dist/package/rivo-agent-${GOOS}-${GOARCH}"
+          mkdir -p "$master_dir" "$agent_dir"
 
-            master_dir="dist/package/rivo-master-linux-${arch}"
-            agent_dir="dist/package/rivo-agent-linux-${arch}"
-            mkdir -p "$master_dir" "$agent_dir"
+          echo "Building ${GOOS}/${GOARCH} with ${CC}"
+          CGO_ENABLED=1 GOOS="$GOOS" GOARCH="$GOARCH" CC="$CC" \
+            go build -trimpath -ldflags "-s -w" -o "$master_dir/rivo-master${EXE}" ./cmd/master
+          CGO_ENABLED=1 GOOS="$GOOS" GOARCH="$GOARCH" CC="$CC" \
+            go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o "$agent_dir/rivo-agent${EXE}" ./cmd/agent
 
-            echo "Building linux/${arch} with ${cc}"
-            CGO_ENABLED=1 GOOS=linux GOARCH="$arch" CC="$cc" \
-              go build -trimpath -ldflags "-s -w" -o "$master_dir/rivo-master" ./cmd/master
-            CGO_ENABLED=1 GOOS=linux GOARCH="$arch" CC="$cc" \
-              go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o "$agent_dir/rivo-agent" ./cmd/agent
+          cp configs/master.example.yaml "$master_dir/config.example.yaml"
+          cp configs/agent.example.yaml "$agent_dir/config.example.yaml"
+          cp LICENSE "$master_dir/LICENSE"
+          cp LICENSE "$agent_dir/LICENSE"
 
-            cp configs/master.example.yaml "$master_dir/config.example.yaml"
-            cp configs/agent.example.yaml "$agent_dir/config.example.yaml"
-            cp LICENSE "$master_dir/LICENSE"
-            cp LICENSE "$agent_dir/LICENSE"
+          tar -C dist/package -czf "dist/release/rivo-master-${GOOS}-${GOARCH}.tar.gz" "rivo-master-${GOOS}-${GOARCH}"
+          tar -C dist/package -czf "dist/release/rivo-agent-${GOOS}-${GOARCH}.tar.gz" "rivo-agent-${GOOS}-${GOARCH}"
 
-            tar -C dist/package -czf "dist/release/rivo-master-linux-${arch}.tar.gz" "rivo-master-linux-${arch}"
-            tar -C dist/package -czf "dist/release/rivo-agent-linux-${arch}.tar.gz" "rivo-agent-linux-${arch}"
-          done
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.target }}
+          path: dist/release/*.tar.gz
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/release
+          pattern: release-*
+          merge-multiple: true
 
       - name: Generate checksums
         working-directory: dist/release
