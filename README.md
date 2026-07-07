@@ -90,10 +90,10 @@ curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | s
 - `--admin-path value`：自定义后台路径，必须超过 5 个字符，只能包含英文字母和数字。
 - `--admin-password value`：自定义后台密码。
 - `--secret value`：自定义 Master 和 Agent 共用密钥。
-- `--version v0.1.0`：同时指定 Docker 镜像标签和二进制 Release 版本。
-- `--image-tag v0.1.0`：只指定 Docker 镜像标签；传 `latest` 可使用 `main` 分支滚动镜像。
+- `--version v1.0.0`：同时指定 Docker 镜像标签和二进制 Release 版本。
+- `--image-tag v1.0.0`：只指定 Docker 镜像标签；传 `latest` 可使用 `main` 分支滚动镜像。
 - `--method docker|binary`：Master 或 Agent 安装方式，默认 `docker`；单机模式只支持 Docker。
-- `--release-version v0.1.0`：只指定二进制 Master 或 Agent 使用的 Release。
+- `--release-version v1.0.0`：只指定二进制 Master 或 Agent 使用的 Release。
 - `--image-owner owner`：覆盖默认镜像和 Release owner，默认 `nyxarrival`。
 - `--release-repo owner/repo`：覆盖用于解析最新稳定版本和二进制包的 GitHub Release 仓库。
 - `--force`：覆盖脚本生成的配置、Compose 或 systemd service 文件。
@@ -103,7 +103,7 @@ curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | s
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | sudo bash -s -- agent \
-  --version v0.1.0 \
+  --version v1.0.0 \
   --master MASTER_IP:9443 \
   --secret "MASTER输出的secret_key"
 ```
@@ -113,7 +113,7 @@ curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | s
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | sudo bash -s -- agent \
   --method binary \
-  --release-version v0.1.0 \
+  --release-version v1.0.0 \
   --master MASTER_IP:9443 \
   --secret "MASTER输出的secret_key"
 ```
@@ -192,7 +192,7 @@ Release 会包含：
 Master：
 
 ```bash
-VERSION=v0.1.0
+VERSION=v1.0.0
 OS=linux # linux / darwin / windows
 ARCH=amd64 # linux/darwin 可用 arm64；windows 当前仅 amd64
 curl -LO "https://github.com/nyxarrival/rivo/releases/download/${VERSION}/rivo-master-${OS}-${ARCH}.tar.gz"
@@ -205,7 +205,7 @@ cp config.example.yaml config.yaml
 Agent：
 
 ```bash
-VERSION=v0.1.0
+VERSION=v1.0.0
 OS=linux # linux / darwin / windows
 ARCH=amd64 # linux/darwin 可用 arm64；windows 当前仅 amd64
 curl -LO "https://github.com/nyxarrival/rivo/releases/download/${VERSION}/rivo-agent-${OS}-${ARCH}.tar.gz"
