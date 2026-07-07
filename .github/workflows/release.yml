@@ -77,31 +77,21 @@ jobs:
             goos: linux
             goarch: amd64
             cc: gcc
-            exe: ""
           - target: linux-arm64
             runner: ubuntu-latest
             goos: linux
             goarch: arm64
             cc: aarch64-linux-gnu-gcc
-            exe: ""
           - target: darwin-amd64
             runner: macos-latest
             goos: darwin
             goarch: amd64
             cc: clang -arch x86_64
-            exe: ""
           - target: darwin-arm64
             runner: macos-latest
             goos: darwin
             goarch: arm64
             cc: clang -arch arm64
-            exe: ""
-          - target: windows-amd64
-            runner: windows-latest
-            goos: windows
-            goarch: amd64
-            cc: x86_64-w64-mingw32-gcc
-            exe: ".exe"
 
     steps:
       - name: Checkout
@@ -127,14 +117,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential gcc-aarch64-linux-gnu
 
-      - name: Set up MinGW for Windows CGO
-        if: matrix.goos == 'windows'
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          update: true
-          install: mingw-w64-x86_64-gcc
-
       - name: Build panel
         working-directory: panel
         shell: bash
@@ -156,13 +138,8 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CC: ${{ matrix.cc }}
-          EXE: ${{ matrix.exe }}
         run: |
           set -euo pipefail
-
-          if [[ "$GOOS" == "windows" ]]; then
-            export PATH="/c/msys64/mingw64/bin:$PATH"
-          fi
 
           mkdir -p dist/package dist/release
 
@@ -172,9 +149,9 @@ jobs:
 
           echo "Building ${GOOS}/${GOARCH} with ${CC}"
           CGO_ENABLED=1 GOOS="$GOOS" GOARCH="$GOARCH" CC="$CC" \
-            go build -trimpath -ldflags "-s -w" -o "$master_dir/rivo-master${EXE}" ./cmd/master
+            go build -trimpath -ldflags "-s -w" -o "$master_dir/rivo-master" ./cmd/master
           CGO_ENABLED=1 GOOS="$GOOS" GOARCH="$GOARCH" CC="$CC" \
-            go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o "$agent_dir/rivo-agent${EXE}" ./cmd/agent
+            go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o "$agent_dir/rivo-agent" ./cmd/agent
 
           cp configs/master.example.yaml "$master_dir/config.example.yaml"
           cp configs/agent.example.yaml "$agent_dir/config.example.yaml"

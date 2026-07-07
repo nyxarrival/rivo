@@ -185,16 +185,14 @@ Release 会包含：
 - `rivo-master-darwin-arm64.tar.gz`
 - `rivo-agent-darwin-amd64.tar.gz`
 - `rivo-agent-darwin-arm64.tar.gz`
-- `rivo-master-windows-amd64.tar.gz`
-- `rivo-agent-windows-amd64.tar.gz`
 - `checksums.txt`
 
 Master：
 
 ```bash
 VERSION=v1.0.0
-OS=linux # linux / darwin / windows
-ARCH=amd64 # linux/darwin 可用 arm64；windows 当前仅 amd64
+OS=linux # linux / darwin
+ARCH=amd64 # amd64 / arm64
 curl -LO "https://github.com/nyxarrival/rivo/releases/download/${VERSION}/rivo-master-${OS}-${ARCH}.tar.gz"
 tar -xzf "rivo-master-${OS}-${ARCH}.tar.gz"
 cd "rivo-master-${OS}-${ARCH}"
@@ -206,8 +204,8 @@ Agent：
 
 ```bash
 VERSION=v1.0.0
-OS=linux # linux / darwin / windows
-ARCH=amd64 # linux/darwin 可用 arm64；windows 当前仅 amd64
+OS=linux # linux / darwin
+ARCH=amd64 # amd64 / arm64
 curl -LO "https://github.com/nyxarrival/rivo/releases/download/${VERSION}/rivo-agent-${OS}-${ARCH}.tar.gz"
 tar -xzf "rivo-agent-${OS}-${ARCH}.tar.gz"
 cd "rivo-agent-${OS}-${ARCH}"
@@ -215,7 +213,7 @@ cp config.example.yaml config.yaml
 ./rivo-agent -config config.yaml
 ```
 
-Windows 包内的可执行文件是 `rivo-master.exe` 和 `rivo-agent.exe`；macOS 运行下载的二进制时，可能需要按系统提示允许来自终端的可执行文件。
+macOS 运行下载的二进制时，可能需要按系统提示允许来自终端的可执行文件。
 
 ## 界面预览
 
