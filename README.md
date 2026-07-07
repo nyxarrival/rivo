@@ -13,18 +13,41 @@ Rivo 是一套面向私有服务器、VPS、LXC 容器和小规模基础设施�
 - `ghcr.io/nyxarrival/rivo-master:latest`
 - `ghcr.io/nyxarrival/rivo-agent:latest`
 
-仓库第一次发布到 GitHub 后，`main` 分支和 `v*` 标签会通过 GitHub Actions 自动构建并推送镜像。
+`latest` 镜像来自 `main` 分支，适合测试滚动版本。一键安装默认会解析最新 GitHub Release tag，并使用同一个 tag 安装 Docker 镜像或二进制包。`v*` 标签发布时会先构建 Docker tag 镜像和 Release 二进制，全部成功后才发布 GitHub Release。
 
-Master、单机模式和 Docker Agent 需要先安装 Docker 与 Docker Compose 插件。二进制 Agent 不需要 Docker，但需要 Linux、systemd、`curl` 或 `wget`，以及 `tar`。
+如果仓库还没有发布任何 GitHub Release，可以显式传 `--image-tag latest` 使用滚动 Docker 镜像；二进制安装必须依赖 Release 包。
+
+Docker 方式需要先安装 Docker 与 Docker Compose 插件。二进制 Master / Agent 不需要 Docker，但需要 Linux、systemd、`curl` 或 `wget`，以及 `tar`。
 
 ### 一键安装
 
-安装脚本会自动生成 `admin_path`、后台密码、`secret_key` 和运行配置，默认安装到 `/opt/rivo/<mode>`。Docker 方式会生成 `compose.yml`，二进制 Agent 会生成 systemd service。
+安装脚本会自动生成 `admin_path`、后台密码、`secret_key` 和运行配置，默认安装到 `/opt/rivo/<mode>`。Docker 方式会生成 `compose.yml`，二进制方式会生成 systemd service。
 
-安装 Master：
+不带参数运行时会进入交互式安装向导，选项可以输入完整单词，也可以输入提示里的字母，例如 `m` 选择 `master`：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | sudo bash
+```
+
+交互提示示例：
+
+```text
+Action (i=install, u=uninstall) [install]:
+Install target (m=master, a=agent, s=single) [master]:
+Install method (d=docker, b=binary) [docker]:
+```
+
+安装 Master，默认使用 Docker：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | sudo bash -s -- master
+```
+
+也可以使用二进制 Master。脚本会自动识别 Linux `amd64` / `arm64`，从最新 GitHub Release 下载对应的 `rivo-master-linux-*.tar.gz`，并注册为 `rivo-master.service`：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | sudo bash -s -- master \
+  --method binary
 ```
 
 安装完成后控制台会输出：
@@ -61,28 +84,31 @@ curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | s
 
 常用参数：
 
+- `--interactive`：进入交互式安装向导。
 - `--http-port 8080`：Master HTTP 端口。
 - `--tcp-port 9443`：Agent 接入端口。
 - `--admin-path value`：自定义后台路径，必须超过 5 个字符，只能包含英文字母和数字。
 - `--admin-password value`：自定义后台密码。
 - `--secret value`：自定义 Master 和 Agent 共用密钥。
-- `--image-tag v0.1.0`：使用指定镜像标签。
-- `--method docker|binary`：Agent 安装方式，默认 `docker`。
-- `--release-version v0.1.0`：二进制 Agent 使用指定 Release；不传则使用最新 Release。
+- `--version v0.1.0`：同时指定 Docker 镜像标签和二进制 Release 版本。
+- `--image-tag v0.1.0`：只指定 Docker 镜像标签；传 `latest` 可使用 `main` 分支滚动镜像。
+- `--method docker|binary`：Master 或 Agent 安装方式，默认 `docker`；单机模式只支持 Docker。
+- `--release-version v0.1.0`：只指定二进制 Master 或 Agent 使用的 Release。
 - `--image-owner owner`：覆盖默认镜像和 Release owner，默认 `nyxarrival`。
+- `--release-repo owner/repo`：覆盖用于解析最新稳定版本和二进制包的 GitHub Release 仓库。
 - `--force`：覆盖脚本生成的配置、Compose 或 systemd service 文件。
 - `--purge`：卸载时同时删除 Docker 命名卷；默认会保留 Docker 数据卷。
 
-安装指定版本时，Docker 方式使用镜像标签：
+安装指定版本时，推荐使用统一的 `--version`，这样 Docker 和二进制方式会使用同一个版本：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | sudo bash -s -- agent \
-  --image-tag v0.1.0 \
+  --version v0.1.0 \
   --master MASTER_IP:9443 \
   --secret "MASTER输出的secret_key"
 ```
 
-二进制方式使用 Release 版本：
+也可以分别覆盖 Docker 镜像标签或二进制 Release 版本：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | sudo bash -s -- agent \
@@ -94,7 +120,7 @@ curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | s
 
 Agent 报 `master closed connection during register handshake` 时，优先检查 Master 和 Agent 使用的 `secret_key` 是否一致。更多说明见 [Agent 说明](docs/agent.md)。
 
-卸载默认会停止并移除 Docker Compose 服务或二进制 Agent 的 systemd 服务，并删除安装目录。Docker 命名卷默认保留，避免误删 Master 数据库和日志；确认要连同 Docker 数据卷一起删除时加 `--purge`。
+卸载默认会停止并移除 Docker Compose 服务或二进制 Master / Agent 的 systemd 服务，并删除安装目录。Docker 命名卷默认保留，避免误删 Master 数据库和日志；确认要连同 Docker 数据卷一起删除时加 `--purge`。
 
 卸载默认路径下的全部组件：
 
@@ -110,9 +136,10 @@ curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | s
 curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | sudo bash -s -- uninstall single
 ```
 
-二进制 Agent 可以显式指定卸载方式；如果安装时使用了自定义目录，卸载时传入同一个 `--install-dir`：
+二进制 Master / Agent 可以显式指定卸载方式；如果安装时使用了自定义目录，卸载时传入同一个 `--install-dir`：
 
 ```bash
+curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | sudo bash -s -- uninstall master --method binary
 curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | sudo bash -s -- uninstall agent --method binary
 curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | sudo bash -s -- uninstall master --install-dir /opt/custom-rivo
 ```
