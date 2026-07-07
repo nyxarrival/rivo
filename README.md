@@ -71,6 +71,7 @@ curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | s
 - `--release-version v0.1.0`：二进制 Agent 使用指定 Release；不传则使用最新 Release。
 - `--image-owner owner`：覆盖默认镜像和 Release owner，默认 `nyxarrival`。
 - `--force`：覆盖脚本生成的配置、Compose 或 systemd service 文件。
+- `--purge`：卸载时同时删除 Docker 命名卷；默认会保留 Docker 数据卷。
 
 安装指定版本时，Docker 方式使用镜像标签：
 
@@ -92,6 +93,29 @@ curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | s
 ```
 
 Agent 报 `master closed connection during register handshake` 时，优先检查 Master 和 Agent 使用的 `secret_key` 是否一致。更多说明见 [Agent 说明](docs/agent.md)。
+
+卸载默认会停止并移除 Docker Compose 服务或二进制 Agent 的 systemd 服务，并删除安装目录。Docker 命名卷默认保留，避免误删 Master 数据库和日志；确认要连同 Docker 数据卷一起删除时加 `--purge`。
+
+卸载默认路径下的全部组件：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | sudo bash -s -- uninstall
+```
+
+也可以只卸载指定模式：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | sudo bash -s -- uninstall master
+curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | sudo bash -s -- uninstall agent
+curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | sudo bash -s -- uninstall single
+```
+
+二进制 Agent 可以显式指定卸载方式；如果安装时使用了自定义目录，卸载时传入同一个 `--install-dir`：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | sudo bash -s -- uninstall agent --method binary
+curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | sudo bash -s -- uninstall master --install-dir /opt/custom-rivo
+```
 
 ### 手动 Docker Compose
 

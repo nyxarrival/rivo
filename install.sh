@@ -10,7 +10,9 @@ DEFAULT_INSTALL_URL="https://raw.githubusercontent.com/nyxarrival/rivo/main/inst
 DEFAULT_RELEASE_VERSION="latest"
 
 MODE=""
+COMMAND="install"
 AGENT_METHOD="${RIVO_AGENT_METHOD:-docker}"
+AGENT_METHOD_SET=false
 IMAGE_OWNER="${RIVO_IMAGE_OWNER:-$DEFAULT_IMAGE_OWNER}"
 IMAGE_REGISTRY="${RIVO_IMAGE_REGISTRY:-$DEFAULT_IMAGE_REGISTRY}"
 IMAGE_TAG="${RIVO_IMAGE_TAG:-$DEFAULT_IMAGE_TAG}"
@@ -27,6 +29,7 @@ SECRET_KEY="${RIVO_SECRET_KEY:-}"
 MASTER_ADDR="${RIVO_MASTER_ADDR:-}"
 INSTALL_URL="${RIVO_INSTALL_URL:-$DEFAULT_INSTALL_URL}"
 FORCE=false
+PURGE=false
 
 usage() {
   cat <<'EOF'
@@ -34,9 +37,10 @@ Usage:
   install.sh master [options]
   install.sh agent --master HOST:9443 --secret SECRET [options]
   install.sh single [options]
+  install.sh uninstall [master|agent|single|all] [options]
 
 Options:
-  --method METHOD          Agent install method: docker or binary. Default: docker
+  --method METHOD          Agent install/uninstall method: docker or binary. Default: docker
   --image-owner OWNER       GitHub/GHCR owner, default: nyxarrival
   --image-registry URL      Image registry, default: ghcr.io
   --image-tag TAG           Image tag, default: latest
@@ -52,6 +56,7 @@ Options:
   --secret VALUE            Shared secret_key. Generated for master/single, required for agent
   --master HOST:PORT        Master TCP address for agent mode
   --force                   Overwrite generated compose/config/service files
+  --purge                   Remove Docker volumes during uninstall
   -h, --help                Show this help
 
 Examples:
@@ -59,6 +64,8 @@ Examples:
   sudo bash install.sh agent --master 1.2.3.4:9443 --secret "..."
   sudo bash install.sh agent --method binary --master 1.2.3.4:9443 --secret "..."
   sudo bash install.sh single
+  sudo bash install.sh uninstall
+  sudo bash install.sh uninstall agent --method binary
 EOF
 }
 
@@ -76,16 +83,34 @@ need_command() {
 }
 
 parse_args() {
-  MODE="${1:-}"
-  if [[ -z "$MODE" || "$MODE" == "-h" || "$MODE" == "--help" ]]; then
+  local first="${1:-}"
+  if [[ -z "$first" || "$first" == "-h" || "$first" == "--help" ]]; then
     usage
     exit 0
   fi
-  case "$MODE" in
-    master|agent|single) ;;
-    *) die "unknown mode: $MODE" ;;
+
+  case "$first" in
+    uninstall)
+      COMMAND="uninstall"
+      shift
+      if [[ $# -gt 0 && "${1:-}" != -* ]]; then
+        MODE="$1"
+        shift
+      else
+        MODE="all"
+      fi
+      case "$MODE" in
+        master|agent|single|all) ;;
+        *) die "unknown uninstall target: $MODE" ;;
+      esac
+      ;;
+    master|agent|single)
+      COMMAND="install"
+      MODE="$first"
+      shift
+      ;;
+    *) die "unknown mode or command: $first" ;;
   esac
-  shift || true
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -94,7 +119,7 @@ parse_args() {
       --image-tag) IMAGE_TAG="${2:-}"; shift 2 ;;
       --master-image) MASTER_IMAGE="${2:-}"; shift 2 ;;
       --agent-image) AGENT_IMAGE="${2:-}"; shift 2 ;;
-      --method|--agent-method) AGENT_METHOD="${2:-}"; shift 2 ;;
+      --method|--agent-method) AGENT_METHOD="${2:-}"; AGENT_METHOD_SET=true; shift 2 ;;
       --release-repo) RELEASE_REPO="${2:-}"; shift 2 ;;
       --release-version) RELEASE_VERSION="${2:-}"; shift 2 ;;
       --install-dir) INSTALL_DIR="${2:-}"; shift 2 ;;
@@ -105,6 +130,7 @@ parse_args() {
       --secret) SECRET_KEY="${2:-}"; shift 2 ;;
       --master) MASTER_ADDR="${2:-}"; shift 2 ;;
       --force) FORCE=true; shift ;;
+      --purge) PURGE=true; shift ;;
       -h|--help) usage; exit 0 ;;
       *) die "unknown option: $1" ;;
     esac
@@ -156,8 +182,11 @@ validate_agent_method() {
     docker|binary) ;;
     *) die "--method must be docker or binary" ;;
   esac
-  if [[ "$MODE" != "agent" && "$AGENT_METHOD" != "docker" ]]; then
+  if [[ "$COMMAND" == "install" && "$MODE" != "agent" && "$AGENT_METHOD" != "docker" ]]; then
     die "--method binary is only supported for agent mode"
+  fi
+  if [[ "$COMMAND" == "uninstall" && "$MODE" != "agent" && "$MODE" != "all" && "$AGENT_METHOD" != "docker" ]]; then
+    die "--method binary is only supported for agent uninstall"
   fi
 }
 
@@ -259,9 +288,13 @@ download_to() {
   fi
 }
 
-ensure_docker_tools() {
+ensure_docker_compose() {
   need_command docker
   docker compose version >/dev/null 2>&1 || die "docker compose plugin is required"
+}
+
+ensure_docker_tools() {
+  ensure_docker_compose
   need_command base64
 }
 
@@ -272,12 +305,17 @@ ensure_agent_binary_tools() {
   command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1 || die "curl or wget is required"
 }
 
-target_dir() {
+target_dir_for_mode() {
+  local mode="$1"
   if [[ -n "$INSTALL_DIR" ]]; then
     printf '%s\n' "$INSTALL_DIR"
   else
-    printf '%s/%s\n' "$DEFAULT_INSTALL_ROOT" "$MODE"
+    printf '%s/%s\n' "$DEFAULT_INSTALL_ROOT" "$mode"
   fi
+}
+
+target_dir() {
+  target_dir_for_mode "$MODE"
 }
 
 write_file() {
@@ -678,6 +716,76 @@ compose_up() {
   docker compose -f "$dir/compose.yml" up -d
 }
 
+compose_down() {
+  local dir="$1"
+  local remove_volumes="$2"
+  if [[ ! -f "$dir/compose.yml" ]]; then
+    info "No compose file found at $dir/compose.yml; skipping Docker cleanup."
+    return
+  fi
+
+  ensure_docker_compose
+  local args=(compose -f "$dir/compose.yml" down --remove-orphans)
+  if [[ "$remove_volumes" == true ]]; then
+    args+=(--volumes)
+  fi
+  docker "${args[@]}"
+}
+
+validate_install_dir_for_uninstall() {
+  local dir="$1"
+  [[ -n "$dir" ]] || die "refusing to remove an empty install directory"
+  case "$dir" in
+    /|.|..|"$DEFAULT_INSTALL_ROOT"|/bin|/boot|/dev|/etc|/home|/lib|/lib64|/opt|/proc|/root|/run|/sbin|/sys|/tmp|/usr|/var)
+      die "refusing to remove unsafe install directory: $dir"
+      ;;
+  esac
+}
+
+remove_install_dir() {
+  local dir="$1"
+  validate_install_dir_for_uninstall "$dir"
+
+  if [[ -d "$dir" ]]; then
+    rm -rf -- "$dir"
+    info "Removed install directory: $dir"
+  else
+    info "Install directory not found: $dir"
+  fi
+}
+
+remove_agent_systemd_service() {
+  local service="/etc/systemd/system/rivo-agent.service"
+  local touched=false
+
+  if ! command -v systemctl >/dev/null 2>&1; then
+    if [[ -e "$service" ]]; then
+      die "systemctl is required to remove $service"
+    fi
+    info "systemctl not found; skipping binary agent service cleanup."
+    return
+  fi
+
+  if systemctl is-active --quiet rivo-agent.service || systemctl is-enabled --quiet rivo-agent.service || [[ -e "$service" ]]; then
+    systemctl stop rivo-agent.service >/dev/null 2>&1 || true
+    systemctl disable rivo-agent.service >/dev/null 2>&1 || true
+    touched=true
+  else
+    info "rivo-agent.service not found; skipping systemd cleanup."
+  fi
+
+  if [[ -e "$service" ]]; then
+    rm -f "$service"
+    info "Removed systemd service: $service"
+    touched=true
+  fi
+
+  if [[ "$touched" == true ]]; then
+    systemctl daemon-reload
+    systemctl reset-failed rivo-agent.service >/dev/null 2>&1 || true
+  fi
+}
+
 print_master_summary() {
   local host_ip
   local master_addr
@@ -786,11 +894,100 @@ install_single() {
   print_master_summary
 }
 
+print_uninstall_summary() {
+  local target="$1"
+  local volume_status="preserved"
+  if [[ "$PURGE" == true ]]; then
+    volume_status="removed when compose files were present"
+  fi
+
+  cat <<EOF
+
+$PROGRAM $target uninstalled.
+
+Docker volumes: $volume_status
+
+EOF
+}
+
+uninstall_docker_mode() {
+  local mode="$1"
+  local dir
+  dir="$(target_dir_for_mode "$mode")"
+  validate_install_dir_for_uninstall "$dir"
+  compose_down "$dir" "$PURGE"
+  remove_install_dir "$dir"
+}
+
+uninstall_agent_binary() {
+  local dir
+  dir="$(target_dir_for_mode agent)"
+  validate_install_dir_for_uninstall "$dir"
+  need_command systemctl
+  remove_agent_systemd_service
+  remove_install_dir "$dir"
+}
+
+uninstall_agent_all_methods() {
+  local dir
+  dir="$(target_dir_for_mode agent)"
+  validate_install_dir_for_uninstall "$dir"
+  compose_down "$dir" "$PURGE"
+  remove_agent_systemd_service
+  remove_install_dir "$dir"
+}
+
+uninstall_agent() {
+  if [[ "$AGENT_METHOD_SET" != true ]]; then
+    uninstall_agent_all_methods
+    return
+  fi
+
+  case "$AGENT_METHOD" in
+    docker)
+      uninstall_docker_mode agent
+      ;;
+    binary)
+      uninstall_agent_binary
+      ;;
+  esac
+}
+
+uninstall_all() {
+  [[ -z "$INSTALL_DIR" ]] || die "--install-dir cannot be used with uninstall all; choose master, agent, or single"
+
+  uninstall_docker_mode master
+  uninstall_docker_mode single
+  uninstall_agent_all_methods
+}
+
+uninstall() {
+  case "$MODE" in
+    master|single)
+      uninstall_docker_mode "$MODE"
+      ;;
+    agent)
+      uninstall_agent
+      ;;
+    all)
+      uninstall_all
+      ;;
+  esac
+  print_uninstall_summary "$MODE"
+}
+
 main() {
   parse_args "$@"
+  validate_agent_method
+
+  if [[ "$COMMAND" == "uninstall" ]]; then
+    uninstall
+    exit 0
+  fi
+
+  [[ "$PURGE" != true ]] || die "--purge is only supported for uninstall"
   validate_port "--http-port" "$HTTP_PORT"
   validate_port "--tcp-port" "$TCP_PORT"
-  validate_agent_method
   normalize_owner
   resolve_install_url
 
