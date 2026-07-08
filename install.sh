@@ -55,11 +55,12 @@ Usage:
   install.sh master [options]
   install.sh agent --master HOST:9443 --secret SECRET [options]
   install.sh single [options]
+  install.sh upgrade [master|agent|single|all] [options]
   install.sh uninstall [master|agent|single|all] [options]
 
 Options:
   -i, --interactive        Prompt for install options
-  --method METHOD          Install/uninstall method: docker or binary. Default: docker
+  --method METHOD          Install/upgrade/uninstall method: docker or binary. Default: docker
   --version VERSION        Use one version for Docker images and binary releases. Default: latest stable release
   --image-owner OWNER       GitHub/GHCR owner, default: nyxarrival
   --image-registry URL      Image registry, default: ghcr.io
@@ -85,6 +86,9 @@ Examples:
   sudo bash install.sh agent --master 1.2.3.4:9443 --secret "..."
   sudo bash install.sh agent --method binary --master 1.2.3.4:9443 --secret "..."
   sudo bash install.sh single
+  sudo bash install.sh upgrade
+  sudo bash install.sh upgrade master
+  sudo bash install.sh upgrade agent --method binary --version v1.0.1
   sudo bash install.sh uninstall
   sudo bash install.sh uninstall master --method binary
   sudo bash install.sh uninstall agent --method binary
@@ -195,6 +199,20 @@ parse_args() {
   fi
 
   case "$first" in
+    upgrade)
+      COMMAND="upgrade"
+      shift
+      if [[ $# -gt 0 && "${1:-}" != -* ]]; then
+        MODE="$1"
+        shift
+      else
+        MODE="all"
+      fi
+      case "$MODE" in
+        master|agent|single|all) ;;
+        *) die "unknown upgrade target: $MODE" ;;
+      esac
+      ;;
     uninstall)
       COMMAND="uninstall"
       shift
@@ -294,11 +312,11 @@ validate_install_method() {
   if [[ "$COMMAND" == "install" && "$MODE" == "single" && "$INSTALL_METHOD" != "docker" ]]; then
     die "--method binary is only supported for master and agent modes"
   fi
-  if [[ "$COMMAND" == "uninstall" && "$MODE" == "single" && "$INSTALL_METHOD" != "docker" ]]; then
-    die "--method binary is only supported for master and agent uninstall"
+  if [[ "$COMMAND" != "install" && "$MODE" == "single" && "$INSTALL_METHOD" != "docker" ]]; then
+    die "--method binary is only supported for master and agent $COMMAND"
   fi
-  if [[ "$COMMAND" == "uninstall" && "$MODE" == "all" && "$METHOD_ARG_SET" == true ]]; then
-    die "--method cannot be used with uninstall all"
+  if [[ "$COMMAND" != "install" && "$MODE" == "all" && "$METHOD_ARG_SET" == true ]]; then
+    die "--method cannot be used with $COMMAND all"
   fi
 }
 
@@ -420,6 +438,33 @@ resolve_install_versions() {
   esac
 
   if { [[ "$needs_image" == true && -z "$IMAGE_TAG" ]] || [[ "$needs_release" == true && -z "$RELEASE_VERSION" ]]; }; then
+    resolve_release_repo
+    stable_tag="$(latest_release_tag)"
+  fi
+
+  if [[ -n "$stable_tag" && -z "$IMAGE_TAG" ]]; then
+    IMAGE_TAG="$stable_tag"
+  fi
+  if [[ -n "$stable_tag" && -z "$RELEASE_VERSION" ]]; then
+    RELEASE_VERSION="$stable_tag"
+  fi
+  if [[ -z "$IMAGE_TAG" && -n "$RELEASE_VERSION" && "$RELEASE_VERSION" != "latest" ]]; then
+    IMAGE_TAG="$RELEASE_VERSION"
+  fi
+  if [[ -z "$RELEASE_VERSION" && -n "$IMAGE_TAG" && "$IMAGE_TAG" != "latest" ]]; then
+    RELEASE_VERSION="$IMAGE_TAG"
+  fi
+}
+
+resolve_upgrade_versions() {
+  local stable_tag=""
+
+  if [[ "$VERSION_SET" == true ]]; then
+    [[ "$IMAGE_TAG_SET" == true ]] || IMAGE_TAG="$VERSION"
+    [[ "$RELEASE_VERSION_SET" == true ]] || RELEASE_VERSION="$VERSION"
+  fi
+
+  if [[ -z "$IMAGE_TAG" || -z "$RELEASE_VERSION" ]]; then
     resolve_release_repo
     stable_tag="$(latest_release_tag)"
   fi
@@ -989,6 +1034,58 @@ compose_down() {
   docker "${args[@]}"
 }
 
+timestamp_utc() {
+  date -u +%Y%m%d%H%M%S
+}
+
+backup_file() {
+  local path="$1"
+  local backup="$path.bak.$(timestamp_utc).$$"
+  cp -p "$path" "$backup"
+  printf '%s\n' "$backup"
+}
+
+replace_compose_service_image() {
+  local compose_file="$1"
+  local service="$2"
+  local image="$3"
+  local tmp="$compose_file.tmp.$$"
+  local status
+
+  set +e
+  awk -v service="$service" -v image="$image" '
+    /^  [A-Za-z0-9_-]+:[[:space:]]*$/ {
+      current = $0
+      sub(/^  /, "", current)
+      sub(/:[[:space:]]*$/, "", current)
+      in_service = current == service
+    }
+    in_service && /^    image:[[:space:]]*/ {
+      print "    image: \"" image "\""
+      replaced = 1
+      next
+    }
+    { print }
+    END {
+      if (!replaced) {
+        exit 42
+      }
+    }
+  ' "$compose_file" >"$tmp"
+  status=$?
+  set -e
+
+  if [[ "$status" -ne 0 ]]; then
+    rm -f "$tmp"
+    if [[ "$status" -eq 42 ]]; then
+      die "compose file does not contain service image for: $service"
+    fi
+    die "failed to update compose file: $compose_file"
+  fi
+
+  mv "$tmp" "$compose_file"
+}
+
 validate_install_dir_for_uninstall() {
   local dir="$1"
   [[ -n "$dir" ]] || die "refusing to remove an empty install directory"
@@ -1304,6 +1401,233 @@ uninstall() {
   print_uninstall_summary "$MODE"
 }
 
+mode_install_exists() {
+  local mode="$1"
+  local dir
+  dir="$(target_dir_for_mode "$mode")"
+  case "$mode" in
+    master|agent)
+      [[ -f "$dir/compose.yml" || -x "$dir/bin/rivo-$mode" || -f "/etc/systemd/system/rivo-$mode.service" ]]
+      ;;
+    single)
+      [[ -f "$dir/compose.yml" ]]
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+upgrade_method_for_mode() {
+  local mode="$1"
+  local dir
+  local has_docker=false
+  local has_binary=false
+
+  if [[ "$METHOD_SET" == true ]]; then
+    printf '%s\n' "$INSTALL_METHOD"
+    return
+  fi
+
+  if [[ "$mode" == "single" ]]; then
+    printf 'docker\n'
+    return
+  fi
+
+  dir="$(target_dir_for_mode "$mode")"
+  [[ -f "$dir/compose.yml" ]] && has_docker=true
+  [[ -x "$dir/bin/rivo-$mode" || -f "/etc/systemd/system/rivo-$mode.service" ]] && has_binary=true
+
+  if [[ "$has_docker" == true && "$has_binary" == true ]]; then
+    die "both Docker and binary installs were found for $mode; rerun with --method docker or --method binary"
+  fi
+  if [[ "$has_docker" == true ]]; then
+    printf 'docker\n'
+    return
+  fi
+  if [[ "$has_binary" == true ]]; then
+    printf 'binary\n'
+    return
+  fi
+
+  die "$mode install not found under $(target_dir_for_mode "$mode")"
+}
+
+print_upgrade_summary() {
+  local target="$1"
+  local method="$2"
+  local version="$3"
+  local backup="$4"
+
+  cat <<EOF
+
+$PROGRAM $target upgraded.
+
+Method:  $method
+Version: $version
+Backup:  $backup
+
+EOF
+}
+
+upgrade_docker_mode() {
+  local mode="$1"
+  local old_mode="$MODE"
+  local dir
+  local compose_file
+  local backup
+  local version
+
+  MODE="$mode"
+  dir="$(target_dir_for_mode "$mode")"
+  compose_file="$dir/compose.yml"
+  [[ -f "$compose_file" ]] || die "Docker install not found: $compose_file"
+
+  ensure_docker_compose
+  resolve_images
+  backup="$(backup_file "$compose_file")"
+
+  case "$mode" in
+    master)
+      replace_compose_service_image "$compose_file" master "$MASTER_IMAGE"
+      version="$MASTER_IMAGE"
+      ;;
+    agent)
+      replace_compose_service_image "$compose_file" agent "$AGENT_IMAGE"
+      version="$AGENT_IMAGE"
+      ;;
+    single)
+      replace_compose_service_image "$compose_file" master "$MASTER_IMAGE"
+      replace_compose_service_image "$compose_file" agent "$AGENT_IMAGE"
+      version="$IMAGE_TAG"
+      ;;
+    *)
+      die "unknown Docker upgrade target: $mode"
+      ;;
+  esac
+
+  if docker compose -f "$compose_file" pull && docker compose -f "$compose_file" up -d; then
+    print_upgrade_summary "$mode" docker "${version:-$IMAGE_TAG}" "$backup"
+  else
+    cp -p "$backup" "$compose_file"
+    docker compose -f "$compose_file" up -d >/dev/null 2>&1 || true
+    die "Docker upgrade failed; restored compose file from $backup"
+  fi
+
+  MODE="$old_mode"
+}
+
+upgrade_binary_component() {
+  local component="$1"
+  local dir="$2"
+  local service="rivo-$component.service"
+  local bin="$dir/bin/rivo-$component"
+  local backup
+
+  [[ -x "$bin" ]] || die "binary install not found: $bin"
+  ensure_binary_tools
+  resolve_release_repo
+
+  backup="$(backup_file "$bin")"
+  if ! ( install_binary_files "$component" "$dir" ); then
+    cp -p "$backup" "$bin"
+    die "binary download or install failed; restored $bin from $backup"
+  fi
+
+  systemctl daemon-reload
+  if systemctl restart "$service"; then
+    print_upgrade_summary "$component" binary "$RELEASE_VERSION" "$backup"
+  else
+    cp -p "$backup" "$bin"
+    chmod 0755 "$bin"
+    systemctl restart "$service" >/dev/null 2>&1 || true
+    die "binary service restart failed; restored $bin from $backup"
+  fi
+}
+
+upgrade_master_binary() {
+  upgrade_binary_component master "$(target_dir_for_mode master)"
+}
+
+upgrade_agent_binary() {
+  upgrade_binary_component agent "$(target_dir_for_mode agent)"
+}
+
+upgrade_target() {
+  local method
+
+  case "$MODE" in
+    master)
+      method="$(upgrade_method_for_mode master)"
+      INSTALL_METHOD="$method"
+      case "$method" in
+        docker) upgrade_docker_mode master ;;
+        binary) upgrade_master_binary ;;
+      esac
+      ;;
+    agent)
+      method="$(upgrade_method_for_mode agent)"
+      INSTALL_METHOD="$method"
+      case "$method" in
+        docker) upgrade_docker_mode agent ;;
+        binary) upgrade_agent_binary ;;
+      esac
+      ;;
+    single)
+      INSTALL_METHOD="docker"
+      upgrade_docker_mode single
+      ;;
+    *)
+      die "unknown upgrade target: $MODE"
+      ;;
+  esac
+}
+
+upgrade_all() {
+  local old_mode="$MODE"
+  local upgraded=false
+  local mode
+  [[ -z "$INSTALL_DIR" ]] || die "--install-dir cannot be used with upgrade all; choose master, agent, or single"
+
+  for mode in master single agent; do
+    if mode_install_exists "$mode"; then
+      MODE="$mode"
+      upgrade_target
+      upgraded=true
+    else
+      info "No $mode install found at $(target_dir_for_mode "$mode"); skipping."
+    fi
+  done
+
+  MODE="$old_mode"
+  [[ "$upgraded" == true ]] || die "no $PROGRAM installation found under $DEFAULT_INSTALL_ROOT"
+}
+
+upgrade() {
+  case "$MODE" in
+    master|agent|single)
+      upgrade_target
+      ;;
+    all)
+      upgrade_all
+      ;;
+  esac
+}
+
+prompt_action_choice() {
+  local value
+  while true; do
+    value="$(prompt_text "Action (i=install, u=uninstall, g=upgrade)" "install")"
+    value="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')"
+    case "$value" in
+      install|i) printf 'install\n'; return ;;
+      uninstall|u) printf 'uninstall\n'; return ;;
+      upgrade|g) printf 'upgrade\n'; return ;;
+    esac
+    printf 'Please choose: i=install, u=uninstall, g=upgrade\n' >/dev/tty
+  done
+}
+
 run_interactive_prompts() {
   if [[ "$INTERACTIVE" != true ]]; then
     return 0
@@ -1311,11 +1635,13 @@ run_interactive_prompts() {
 
   need_tty
   if [[ -z "$MODE" ]]; then
-    COMMAND="$(prompt_choice "Action (install/uninstall)" "install" install uninstall)"
+    COMMAND="$(prompt_action_choice)"
     if [[ "$COMMAND" == "install" ]]; then
       MODE="$(prompt_choice "Install target (master/agent/single)" "master" master agent single)"
-    else
+    elif [[ "$COMMAND" == "uninstall" ]]; then
       MODE="$(prompt_choice "Uninstall target (master/agent/single/all)" "all" master agent single all)"
+    else
+      MODE="$(prompt_choice "Upgrade target (master/agent/single/all)" "all" master agent single all)"
     fi
   fi
 
@@ -1354,10 +1680,17 @@ main() {
   fi
 
   [[ "$PURGE" != true ]] || die "--purge is only supported for uninstall"
-  validate_port "--http-port" "$HTTP_PORT"
-  validate_port "--tcp-port" "$TCP_PORT"
   normalize_owner
   resolve_install_url
+
+  if [[ "$COMMAND" == "upgrade" ]]; then
+    resolve_upgrade_versions
+    upgrade
+    exit 0
+  fi
+
+  validate_port "--http-port" "$HTTP_PORT"
+  validate_port "--tcp-port" "$TCP_PORT"
   resolve_install_versions
 
   case "$MODE" in

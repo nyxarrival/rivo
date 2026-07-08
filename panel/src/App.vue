@@ -498,6 +498,7 @@ const weComTestLoading = ref(false)
 const telegramTestLoading = ref(false)
 const emailTestLoading = ref(false)
 const defaultSiteAvatarURL = '/rivo-logo.png'
+const defaultHomeBackgroundURL = '/default-background.png'
 
 const adminConfig = ref<AdminConfig | null>(null)
 const appSettings = ref<AppSettings>(defaultAppSettings())
@@ -569,6 +570,9 @@ let trendHideTimer: number | undefined
 let trendRequestID = 0
 let probeResultsRequestID = 0
 let metricsPanelRequestID = 0
+let homeBackgroundRequestID = 0
+let currentHomeBackgroundURL = ''
+let homeBackgroundVisible = false
 const trendRealtimeCooldownMs = 3000
 const trendRealtimePollDelayMs = 550
 const trendRealtimePollAttempts = 5
@@ -654,7 +658,7 @@ const siteDescription = computed(() => normalizeSiteDescription(appSettings.valu
 const siteAvatar = computed(() => normalizeImageURL(appSettings.value.site_avatar_url) || defaultSiteAvatarURL)
 const userAvatar = computed(() => normalizeImageURL(appSettings.value.user_avatar_url))
 const homeBackgroundURL = computed(() => normalizeImageURL(appSettings.value.home_background_url))
-const homeBackgroundImage = computed(() => homeBackgroundURL.value ? cssImageURL(homeBackgroundURL.value) : '')
+const activeHomeBackgroundURL = computed(() => homeBackgroundURL.value || defaultHomeBackgroundURL)
 const siteInitial = computed(() => siteName.value.trim().slice(0, 1).toUpperCase() || 'R')
 const activeThemeID = computed(() => appSettings.value.active_theme || 'default')
 const activeProbePanelTaskCount = computed(() => probePanelTasks.value.filter((task) => task.enabled).length)
@@ -753,13 +757,28 @@ const nodeColumns: DataTableColumns<NodeRecord> = [
   {
     title: '操作',
     key: 'actions',
-    width: 112,
+    width: 168,
     align: 'center',
-    render: (row: NodeRecord) => h(NButton, {
-      size: 'small',
-      tertiary: true,
-      onClick: () => openNodeEditor(row)
-    }, { default: () => '编辑' })
+    render: (row: NodeRecord) => h(NSpace, {
+      size: 6,
+      justify: 'center',
+      wrapItem: false
+    }, {
+      default: () => [
+        h(NButton, {
+          size: 'small',
+          tertiary: true,
+          onClick: () => openNodeEditor(row)
+        }, { default: () => '编辑' }),
+        h(NButton, {
+          size: 'small',
+          tertiary: true,
+          type: 'error',
+          loading: adminLoading.value,
+          onClick: () => deleteNode(row)
+        }, { default: () => '删除' })
+      ]
+    })
   }
 ]
 
@@ -921,6 +940,7 @@ const networkLineTagPopoverProps = {
     padding: '8px 10px'
   }
 }
+const nodeEditorSelectMenuProps = { class: 'node-editor-select-menu' }
 
 const assetBaseCurrencyOptions = [
   { label: '人民币 CNY', value: 'CNY' },
@@ -969,32 +989,6 @@ const regionFlagURLs: Record<string, string> = {
   tw: flagTW,
   us: flagUS,
   vn: flagVN
-}
-
-const regionFlagTexts: Record<string, string> = {
-  ae: '🇦🇪',
-  au: '🇦🇺',
-  br: '🇧🇷',
-  ca: '🇨🇦',
-  cn: '🇨🇳',
-  de: '🇩🇪',
-  fr: '🇫🇷',
-  gb: '🇬🇧',
-  hk: '🇭🇰',
-  id: '🇮🇩',
-  in: '🇮🇳',
-  jp: '🇯🇵',
-  kr: '🇰🇷',
-  my: '🇲🇾',
-  nl: '🇳🇱',
-  ph: '🇵🇭',
-  ru: '🇷🇺',
-  sg: '🇸🇬',
-  th: '🇹🇭',
-  tr: '🇹🇷',
-  tw: '🇹🇼',
-  us: '🇺🇸',
-  vn: '🇻🇳'
 }
 
 function fallbackRegionOptions(): RegionOption[] {
@@ -1573,6 +1567,62 @@ function cssImageURL(value: string) {
   return `url("${escaped}")`
 }
 
+function preloadImage(url: string) {
+  return new Promise<void>((resolve, reject) => {
+    const image = new Image()
+    image.decoding = 'async'
+    image.onload = () => {
+      if (!image.decode) {
+        resolve()
+        return
+      }
+      image.decode().then(resolve).catch(() => resolve())
+    }
+    image.onerror = () => reject(new Error(`load image failed: ${url}`))
+    image.src = url
+    if (image.complete && image.naturalWidth > 0) {
+      image.onload = null
+      image.onerror = null
+      if (!image.decode) {
+        resolve()
+        return
+      }
+      image.decode().then(resolve).catch(() => resolve())
+    }
+  })
+}
+
+async function applyHomeBackground(url: string) {
+  const nextURL = url || defaultHomeBackgroundURL
+  const requestID = ++homeBackgroundRequestID
+  try {
+    await preloadImage(nextURL)
+  } catch (error) {
+    if (requestID !== homeBackgroundRequestID) return
+    if (nextURL !== defaultHomeBackgroundURL) {
+      void applyHomeBackground(defaultHomeBackgroundURL)
+      return
+    }
+    console.warn('load home background failed', error)
+    return
+  }
+
+  if (requestID !== homeBackgroundRequestID) return
+  if (homeBackgroundVisible && currentHomeBackgroundURL && currentHomeBackgroundURL !== nextURL) {
+    document.body.style.setProperty('--home-background-opacity', '0')
+    await wait(160)
+    if (requestID !== homeBackgroundRequestID) return
+  }
+
+  document.body.style.setProperty('--home-background-image', cssImageURL(nextURL))
+  currentHomeBackgroundURL = nextURL
+  window.requestAnimationFrame(() => {
+    if (requestID !== homeBackgroundRequestID) return
+    document.body.style.setProperty('--home-background-opacity', '1')
+    homeBackgroundVisible = true
+  })
+}
+
 function buildSettingsPayload(scope: SettingsSaveScope): AppSettings {
   const base = normalizeAppSettingsPayload(appSettings.value)
   const editor = settingsEditor.value
@@ -1845,6 +1895,52 @@ async function saveNodeConfig() {
   } catch (error) {
     const description = error instanceof Error ? error.message : '未知错误'
     message.error(`Agent 配置保存失败：${description}`)
+  } finally {
+    adminLoading.value = false
+  }
+}
+
+async function deleteNode(row: NodeRecord) {
+  const label = nodeLabel(row)
+  if (!window.confirm(`确认删除 Agent「${label}」及其指标、快照、Ping、告警等关联数据？此操作不可恢复。`)) return
+
+  adminLoading.value = true
+  try {
+    await fetchJson<{ deleted: boolean }>(`/api/admin/nodes/${encodeURIComponent(row.node_id)}`, {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${token.value}`
+      }
+    })
+    if (selectedNodeID.value === row.node_id) {
+      selectedNodeID.value = ''
+      metrics.value = []
+    }
+    if (adminEditNodeID.value === row.node_id) {
+      adminEditNodeID.value = ''
+      nodeEditOpen.value = false
+    }
+    if (activeProbeNode.value?.node_id === row.node_id) {
+      probePanelOpen.value = false
+      activeProbeNode.value = null
+      probeResults.value = []
+      probePanelTasks.value = []
+      stopProbeAutoRefresh()
+    }
+    if (activeMetricsNode.value?.node_id === row.node_id) {
+      metricsPanelOpen.value = false
+      activeMetricsNode.value = null
+      metricsPanelMetrics.value = []
+      latestSnapshot.value = null
+      stopMetricsAutoRefresh()
+    }
+    delete trendMetricsCache.value[row.node_id]
+    await refreshAll()
+    await loadAdminData()
+    message.success('节点数据已删除')
+  } catch (error) {
+    const description = error instanceof Error ? error.message : '未知错误'
+    message.error(`节点数据删除失败：${description}`)
   } finally {
     adminLoading.value = false
   }
@@ -3388,6 +3484,13 @@ function nodePrimaryIP(node?: NodeRecord | null) {
   return nodePrimaryLocalIP(node)
 }
 
+function nodePrimaryIPv4(node?: NodeRecord | null) {
+  if (!node) return ''
+  const publicIPv4 = nodePrimaryPublicIPv4(node)
+  if (publicIPv4) return publicIPv4
+  return displayIP(nodeIPv4List(node)[0] || '')
+}
+
 function nodePrimaryLocalIP(node?: NodeRecord | null) {
   if (!node) return ''
   const addresses = nodeIPAddresses(node)
@@ -3397,6 +3500,10 @@ function nodePrimaryLocalIP(node?: NodeRecord | null) {
 
 function nodeIPSummary(node: NodeRecord) {
   return displayIPList([...nodePublicIPv4List(node), ...nodePublicIPv6List(node)])
+}
+
+function nodeCardIPSummary(node: NodeRecord) {
+  return nodePrimaryIPv4(node)
 }
 
 function nodePublicIPv4Text(node?: NodeRecord | null) {
@@ -3578,19 +3685,12 @@ function regionFlagStyle(region?: string | null) {
 }
 
 function regionFlagText(region?: string | null) {
-  const code = countryFlagCode(region)
-  if (code === 'default') return '🌐'
-  return regionFlagTexts[code] ?? flagEmojiFromCode(code)
+  return regionFlagURL(region) ? '' : ''
 }
 
 function regionFlagLabel(region?: string | null) {
   if (countryFlagCode(region) === 'default') return '默认地区'
   return `${displayRegion(region)}地区旗帜`
-}
-
-function flagEmojiFromCode(code: string) {
-  if (!/^[a-z]{2}$/.test(code)) return '🌐'
-  return String.fromCodePoint(...code.toUpperCase().split('').map((char) => 127397 + char.charCodeAt(0)))
 }
 
 function renderRegionOptionLabel(option: SelectOption) {
@@ -4745,12 +4845,8 @@ function disposeMetricsCharts() {
 watch([activeTrend, activeTrendMetrics], renderTrendChart)
 watch([probePanelOpen, visibleProbeResults], renderProbeChart)
 watch([metricsPanelOpen, metricsBuckets], renderMetricsPanelCharts)
-watch(homeBackgroundImage, (value) => {
-  if (value) {
-    document.body.style.setProperty('--home-background-image', value)
-  } else {
-    document.body.style.removeProperty('--home-background-image')
-  }
+watch(activeHomeBackgroundURL, (value) => {
+  void applyHomeBackground(value)
 }, { immediate: true })
 watch(() => appSettings.value.metrics_retention_months, () => {
   const nextProbeRange = clampRangeToRetention(probeRange.value)
@@ -4820,7 +4916,11 @@ onBeforeUnmount(() => {
   probeChart?.dispose()
   probeChart = null
   disposeMetricsCharts()
+  homeBackgroundRequestID += 1
+  currentHomeBackgroundURL = ''
+  homeBackgroundVisible = false
   document.body.style.removeProperty('--home-background-image')
+  document.body.style.removeProperty('--home-background-opacity')
   window.removeEventListener('resize', resizeCharts)
 })
 </script>
@@ -4858,7 +4958,7 @@ onBeforeUnmount(() => {
           :selected-node-id="selectedNodeID"
           :node-label="nodeLabel"
           :node-hover-tags="nodeHoverTags"
-          :node-ip-summary="nodeIPSummary"
+          :node-ip-summary="nodeCardIPSummary"
           :display-region="displayRegion"
           :region-flag-class="regionFlagClass"
           :region-flag-style="regionFlagStyle"
@@ -5461,6 +5561,8 @@ onBeforeUnmount(() => {
                   <n-select
                     v-model:value="nodeEditor.region"
                     filterable
+                    to="body"
+                    :menu-props="nodeEditorSelectMenuProps"
                     :options="regionOptions"
                     :render-label="renderRegionOptionLabel"
                     placeholder="选择国家/地区代码"
@@ -5477,13 +5579,13 @@ onBeforeUnmount(() => {
                   </n-input-number>
                 </n-form-item>
                 <n-form-item label="付费方式">
-                  <n-select v-model:value="nodeEditor.billing_cycle" :options="billingCycleOptions" />
+                  <n-select v-model:value="nodeEditor.billing_cycle" to="body" :menu-props="nodeEditorSelectMenuProps" :options="billingCycleOptions" />
                 </n-form-item>
                 <n-form-item label="金额">
                   <n-input-number v-model:value="nodeEditor.price_amount" :min="0" :precision="2" />
                 </n-form-item>
                 <n-form-item label="币种">
-                  <n-select v-model:value="nodeEditor.currency" :options="currencyOptions" />
+                  <n-select v-model:value="nodeEditor.currency" to="body" :menu-props="nodeEditorSelectMenuProps" :options="currencyOptions" />
                 </n-form-item>
                 <n-form-item label="服务周期">
                   <n-date-picker v-model:value="nodeEditor.service_range" type="daterange" clearable to="body" placement="bottom-end" />
@@ -5491,7 +5593,7 @@ onBeforeUnmount(() => {
                 <n-form-item label="总流量">
                   <div class="traffic-limit-input">
                     <n-input-number v-model:value="nodeEditor.traffic_limit_value" :min="0" :precision="2" placeholder="0 为不限" />
-                    <n-select v-model:value="nodeEditor.traffic_limit_unit" :options="trafficUnitOptions" />
+                    <n-select v-model:value="nodeEditor.traffic_limit_unit" to="body" :menu-props="nodeEditorSelectMenuProps" :options="trafficUnitOptions" />
                   </div>
                 </n-form-item>
                 <n-form-item label="校准流量">
@@ -5500,10 +5602,10 @@ onBeforeUnmount(() => {
                   </n-input-number>
                 </n-form-item>
                 <n-form-item label="计费方向">
-                  <n-select v-model:value="nodeEditor.traffic_billing_direction" :options="trafficBillingDirectionOptions" />
+                  <n-select v-model:value="nodeEditor.traffic_billing_direction" to="body" :menu-props="nodeEditorSelectMenuProps" :options="trafficBillingDirectionOptions" />
                 </n-form-item>
                 <n-form-item label="重置周期">
-                  <n-select v-model:value="nodeEditor.traffic_reset_cycle" :options="trafficResetOptions" />
+                  <n-select v-model:value="nodeEditor.traffic_reset_cycle" to="body" :menu-props="nodeEditorSelectMenuProps" :options="trafficResetOptions" />
                 </n-form-item>
               </n-form>
             </n-tab-pane>

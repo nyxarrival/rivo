@@ -32,7 +32,7 @@ curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | s
 交互提示示例：
 
 ```text
-Action (i=install, u=uninstall) [install]:
+Action (i=install, u=uninstall, g=upgrade) [install]:
 Install target (m=master, a=agent, s=single) [master]:
 Install method (d=docker, b=binary) [docker]:
 ```
@@ -90,7 +90,7 @@ curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | s
 - `--admin-path value`：自定义后台路径，必须超过 5 个字符，只能包含英文字母和数字。
 - `--admin-password value`：自定义后台密码。
 - `--secret value`：自定义 Master 和 Agent 共用密钥。
-- `--version v1.0.0`：同时指定 Docker 镜像标签和二进制 Release 版本。
+- `--version v1.0.0`：安装或升级时同时指定 Docker 镜像标签和二进制 Release 版本。
 - `--image-tag v1.0.0`：只指定 Docker 镜像标签；传 `latest` 可使用 `main` 分支滚动镜像。
 - `--method docker|binary`：Master 或 Agent 安装方式，默认 `docker`；单机模式只支持 Docker。
 - `--release-version v1.0.0`：只指定二进制 Master 或 Agent 使用的 Release。
@@ -119,6 +119,22 @@ curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | s
 ```
 
 Agent 报 `master closed connection during register handshake` 时，优先检查 Master 和 Agent 使用的 `secret_key` 是否一致。更多说明见 [Agent 说明](docs/agent.md)。
+
+升级到最新稳定版：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | sudo bash -s -- upgrade
+```
+
+也可以只升级指定组件，或指定目标版本：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | sudo bash -s -- upgrade master
+curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | sudo bash -s -- upgrade agent --version v1.0.1
+curl -fsSL https://raw.githubusercontent.com/nyxarrival/rivo/main/install.sh | sudo bash -s -- upgrade agent --method binary --version v1.0.1
+```
+
+Docker 安装会更新安装目录里的 `compose.yml` 镜像标签，然后执行 `docker compose pull` 和 `docker compose up -d`；二进制安装会下载新的 Release 包、备份当前二进制、替换后重启 systemd 服务。升级不会覆盖已有配置文件，也不会删除 Docker 数据卷。
 
 卸载默认会停止并移除 Docker Compose 服务或二进制 Master / Agent 的 systemd 服务，并删除安装目录。Docker 命名卷默认保留，避免误删 Master 数据库和日志；确认要连同 Docker 数据卷一起删除时加 `--purge`。
 
@@ -185,14 +201,16 @@ Release 会包含：
 - `rivo-master-darwin-arm64.tar.gz`
 - `rivo-agent-darwin-amd64.tar.gz`
 - `rivo-agent-darwin-arm64.tar.gz`
+- `rivo-master-windows-amd64.tar.gz`
+- `rivo-agent-windows-amd64.tar.gz`
 - `checksums.txt`
 
 Master：
 
 ```bash
 VERSION=v1.0.0
-OS=linux # linux / darwin
-ARCH=amd64 # amd64 / arm64
+OS=linux # linux / darwin / windows
+ARCH=amd64 # linux/darwin 可用 amd64/arm64；windows 当前仅 amd64
 curl -LO "https://github.com/nyxarrival/rivo/releases/download/${VERSION}/rivo-master-${OS}-${ARCH}.tar.gz"
 tar -xzf "rivo-master-${OS}-${ARCH}.tar.gz"
 cd "rivo-master-${OS}-${ARCH}"
@@ -204,8 +222,8 @@ Agent：
 
 ```bash
 VERSION=v1.0.0
-OS=linux # linux / darwin
-ARCH=amd64 # amd64 / arm64
+OS=linux # linux / darwin / windows
+ARCH=amd64 # linux/darwin 可用 amd64/arm64；windows 当前仅 amd64
 curl -LO "https://github.com/nyxarrival/rivo/releases/download/${VERSION}/rivo-agent-${OS}-${ARCH}.tar.gz"
 tar -xzf "rivo-agent-${OS}-${ARCH}.tar.gz"
 cd "rivo-agent-${OS}-${ARCH}"
@@ -213,7 +231,7 @@ cp config.example.yaml config.yaml
 ./rivo-agent -config config.yaml
 ```
 
-macOS 运行下载的二进制时，可能需要按系统提示允许来自终端的可执行文件。
+Windows 包内的可执行文件是 `rivo-master.exe` 和 `rivo-agent.exe`；macOS 运行下载的二进制时，可能需要按系统提示允许来自终端的可执行文件。
 
 ## 界面预览
 

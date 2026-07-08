@@ -126,7 +126,7 @@ function handleThemeFileChange(event: Event) {
                   :columns="nodeColumns"
                   :data="adminNodes"
                   :pagination="{ pageSize: 10 }"
-                  :scroll-x="2820"
+                  :scroll-x="2900"
                 />
               </div>
             </n-space>

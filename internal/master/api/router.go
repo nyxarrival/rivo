@@ -917,6 +917,39 @@ log:
 		c.JSON(http.StatusOK, buildNodeOverview(db, node))
 	})
 
+	admin.DELETE("/nodes/:node_id", func(c *gin.Context) {
+		nodeID := strings.TrimSpace(c.Param("node_id"))
+		if nodeID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "node id is required"})
+			return
+		}
+
+		var node model.Node
+		if err := db.Where("node_id = ?", nodeID).First(&node).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				c.JSON(http.StatusNotFound, gin.H{"error": "node not found"})
+				return
+			}
+			logger.Error("load node for delete failed", slog.String("node_id", nodeID), slog.String("error", err.Error()))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "load node failed"})
+			return
+		}
+
+		if err := db.Transaction(func(tx *gorm.DB) error {
+			return deleteNodeData(tx, nodeID)
+		}); err != nil {
+			logger.Error("delete node failed", slog.String("node_id", nodeID), slog.String("error", err.Error()))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "delete node failed"})
+			return
+		}
+
+		storeSystemEventLog(db, "master", nodeID, "warning", "node.deleted", "node data deleted", map[string]any{
+			"node_id": nodeID,
+			"name":    node.Name,
+		})
+		c.JSON(http.StatusOK, gin.H{"deleted": true})
+	})
+
 	admin.GET("/nodes/:node_id/snapshots/latest", func(c *gin.Context) {
 		nodeID := c.Param("node_id")
 		var node model.Node
@@ -3436,6 +3469,25 @@ func replaceNodeProbeTaskAssignments(db *gorm.DB, nodeID string, taskIDs []uint6
 		})
 	}
 	return db.Create(&assignments).Error
+}
+
+func deleteNodeData(db *gorm.DB, nodeID string) error {
+	deletes := []func() error{
+		func() error { return db.Where("node_id = ?", nodeID).Delete(&model.ProbeTaskAssignment{}).Error },
+		func() error { return db.Where("node_id = ?", nodeID).Delete(&model.ProbeResult{}).Error },
+		func() error { return db.Where("node_id = ?", nodeID).Delete(&model.NodeMetric{}).Error },
+		func() error { return db.Where("node_id = ?", nodeID).Delete(&model.NodeSnapshot{}).Error },
+		func() error { return db.Where("node_id = ?", nodeID).Delete(&model.Alert{}).Error },
+		func() error { return db.Where("node_id = ?", nodeID).Delete(&model.NodeEvent{}).Error },
+		func() error { return db.Where("node_id = ?", nodeID).Delete(&model.SystemLog{}).Error },
+		func() error { return db.Where("node_id = ?", nodeID).Delete(&model.Node{}).Error },
+	}
+	for _, deleteRow := range deletes {
+		if err := deleteRow(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func assignProbeTaskToAllNodes(db *gorm.DB, taskID uint64) (int, error) {

@@ -644,6 +644,12 @@ input {
   vertical-align: -2px;
 }
 
+.region-flag-icon:not(.region-flag-default) {
+  color: transparent;
+  font-size: 0;
+  line-height: 0;
+}
+
 .region-flag-default {
   position: relative;
   border-radius: 999px;
@@ -682,15 +688,16 @@ input {
 .region-select-flag.region-flag-icon,
 .node-region-detail .node-flag.region-flag-icon,
 .asset-row-name .node-flag.region-flag-icon {
-  display: inline-grid;
-  place-items: center;
+  display: inline-block;
   width: 18px;
-  height: 18px;
-  overflow: visible;
-  border: 0;
-  background: transparent !important;
-  font-size: 15px;
-  line-height: 1;
+  height: 13.5px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 4px;
+  background-position: 50%;
+  background-repeat: no-repeat;
+  background-size: cover;
+  vertical-align: -2px;
 }
 
 .status-dot {
@@ -3991,9 +3998,12 @@ body {
   z-index: 1;
 }
 
-.vps-card:hover,
+.vps-card:hover {
+  transform: translateY(-5px);
+  border-color: rgba(255, 255, 255, 0.32);
+}
+
 .vps-card.active {
-  transform: translateY(-5px) scale(1.008);
   border-color: rgba(255, 255, 255, 0.32);
 }
 
@@ -5181,6 +5191,8 @@ body {
   --radius-sm: 16px;
   --page-width: min(1680px, calc(100% - 40px));
   --default-home-background: url("/default-background.png");
+  --default-home-background-placeholder: url("/default-background.svg");
+  --home-background-opacity: 0;
 }
 
 * {
@@ -5193,13 +5205,14 @@ html {
 }
 
 body {
+  position: relative;
   min-height: 100vh;
   margin: 0;
   color: var(--text);
   font-family: var(--apple-font-family);
   background:
     linear-gradient(90deg, rgba(7, 17, 31, 0.12) 0%, rgba(7, 17, 31, 0.06) 38%, rgba(7, 17, 31, 0.04) 66%, rgba(7, 17, 31, 0.08) 100%),
-    var(--home-background-image, var(--default-home-background)),
+    var(--home-background-placeholder, var(--default-home-background-placeholder)),
     linear-gradient(135deg, #243a58 0%, #2d526b 42%, #48385f 100%);
   background-attachment: fixed;
   background-position: center;
@@ -5211,6 +5224,7 @@ body {
 body::before {
   position: fixed;
   inset: 0;
+  z-index: 1;
   pointer-events: none;
   content: "";
   background-image:
@@ -5220,8 +5234,26 @@ body::before {
   mask-image: radial-gradient(circle at center, black, transparent 78%);
 }
 
+body::after {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  content: "";
+  background:
+    linear-gradient(90deg, rgba(7, 17, 31, 0.12) 0%, rgba(7, 17, 31, 0.06) 38%, rgba(7, 17, 31, 0.04) 66%, rgba(7, 17, 31, 0.08) 100%),
+    var(--home-background-image, var(--default-home-background));
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+  opacity: var(--home-background-opacity, 0);
+  transition: opacity 520ms ease;
+  will-change: opacity;
+}
+
 .page-shell {
   position: relative;
+  z-index: 2;
   display: flex;
   flex-direction: column;
   min-height: 100vh;
@@ -5230,6 +5262,12 @@ body::before {
   isolation: isolate;
   overflow-x: hidden;
   background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body::after {
+    transition: none;
+  }
 }
 
 .page-shell::before {
@@ -5947,9 +5985,15 @@ body::before {
   z-index: 1;
 }
 
-.vps-card:hover,
+.vps-card:hover {
+  transform: translateY(-5px);
+  border-color: rgba(255, 255, 255, 0.28) !important;
+  background:
+    radial-gradient(circle at 18% 0%, rgba(255, 255, 255, 0.14), transparent 34%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.095), rgba(255, 255, 255, 0.035)) !important;
+}
+
 .vps-card.active {
-  transform: translateY(-5px) scale(1.008);
   border-color: rgba(255, 255, 255, 0.28) !important;
   background:
     radial-gradient(circle at 18% 0%, rgba(255, 255, 255, 0.14), transparent 34%),
@@ -7738,6 +7782,22 @@ body::before {
 .node-editor-modal .n-input-number,
 .node-editor-modal .n-date-picker {
   width: 100%;
+}
+
+.traffic-limit-input {
+  grid-template-columns: minmax(0, 1fr) 92px;
+}
+
+.traffic-limit-input .n-input-number {
+  min-width: 0;
+}
+
+.traffic-limit-input .n-base-selection {
+  width: 92px;
+}
+
+.node-editor-select-menu {
+  min-width: 220px;
 }
 
 .n-date-panel--daterange {
